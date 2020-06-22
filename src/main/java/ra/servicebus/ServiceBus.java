@@ -2,6 +2,8 @@ package ra.servicebus;
 
 
 import ra.common.*;
+import ra.common.route.Route;
+import ra.common.route.RoutingSlip;
 import ra.sedabus.SEDABus;
 import ra.util.AppThread;
 import ra.util.Config;
@@ -32,8 +34,24 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
 
     @Override
     public boolean send(Envelope e) {
-        LOG.info("Received envelope. Publishing to channel...");
-        return mBus.publish(e);
+        if(e==null) {
+            LOG.warning("Envelope is required.");
+            return false;
+        }
+        LOG.info("Received envelope.");
+        Route route = null;
+        if(e.getRoute()!=null) {
+            route = e.getRoute();
+        } else if(e.getDynamicRoutingSlip()!=null) {
+            route = e.getDynamicRoutingSlip().getCurrentRoute();
+        }
+        if(route==null || route.getRouted()) {
+            // End of route
+            LOG.info("End of Route");
+            return true;
+        } else {
+            return mBus.publish(e);
+        }
     }
 
     public void registerBusStatusListener (BusStatusListener busStatusListener) {
@@ -271,8 +289,6 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
 
     /**
      * Shutdown the Service Bus
-     *
-     * TODO: Run in separate AppThread
      *
      * @return boolean was shutdown successful
      */
