@@ -48,6 +48,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             route = e.getRoute();
         } else if(e.getDynamicRoutingSlip()!=null) {
             route = e.getDynamicRoutingSlip().getCurrentRoute();
+            e.setRoute(route);
         }
         if(route==null || route.getRouted()) {
             // End of route
