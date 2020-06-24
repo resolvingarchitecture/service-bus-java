@@ -1,8 +1,8 @@
 package ra.servicebus;
 
 import org.junit.Assert;
-import ra.common.BaseService;
 import ra.common.Envelope;
+import ra.common.service.BaseService;
 
 public class MockService extends BaseService {
 
