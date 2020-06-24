@@ -66,16 +66,24 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         busStatusListeners.remove(busStatusListener);
     }
 
-    public boolean registerService(Class serviceClass, Properties p, List<ServiceStatusObserver> observers) throws ServiceNotAccessibleException, ServiceNotSupportedException, ServiceRegisteredException {
-        LOG.info("Registering service class: "+serviceClass.getName());
+    public boolean registerService(Class serviceClass, Properties p, List<ServiceStatusObserver> observers) throws ServiceNotAccessibleException, ServiceNotSupportedException {
         if(registeredServices.containsKey(serviceClass.getName())) {
-            throw new ServiceRegisteredException();
+            LOG.info("Service already registered, skipping: "+serviceClass.getName());
+            return true;
         }
+        LOG.info("Registering service class: "+serviceClass.getName());
         if(p != null && p.size() > 0)
             properties.putAll(p);
         final String serviceName = serviceClass.getName();
         try {
             final BaseService service = (BaseService)Class.forName(serviceName).getConstructor().newInstance();
+            // Ensure dependent services are registered
+            if(service.getServicesDependentUpon()!=null && service.getServicesDependentUpon().size() > 0) {
+                for(Class c : service.getServicesDependentUpon()) {
+                    registerService(c, properties, null);
+                }
+            }
+            // Continue registering this service
             service.setProducer(this);
             mBus.registerChannel(serviceName);
             mBus.registerAsynchConsumer(serviceName, service);
