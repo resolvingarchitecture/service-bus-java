@@ -1,5 +1,6 @@
 package ra.servicebus;
 
+import ra.common.Client;
 import ra.common.Envelope;
 import ra.common.LifeCycle;
 import ra.common.Status;
@@ -43,13 +44,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             return false;
         }
         LOG.info("Received envelope.");
-        Route route = null;
-        if(e.getRoute()!=null) {
-            route = e.getRoute();
-        } else if(e.getDynamicRoutingSlip()!=null) {
-            route = e.getDynamicRoutingSlip().getCurrentRoute();
-            e.setRoute(route);
-        }
+        Route route = determineRoute(e);
         if(route==null || route.getRouted()) {
             // End of route
             LOG.info("End of Route");
@@ -57,6 +52,34 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         } else {
             return mBus.publish(e);
         }
+    }
+
+    @Override
+    public boolean send(Envelope e, Client client) {
+        if(e==null) {
+            LOG.warning("Envelope is required.");
+            return false;
+        }
+        LOG.info("Received envelope.");
+        Route route = determineRoute(e);
+        if(route==null || route.getRouted()) {
+            // End of route
+            LOG.info("End of Route");
+            return true;
+        } else {
+            return mBus.publish(e, client);
+        }
+    }
+
+    private Route determineRoute(Envelope e) {
+        Route route = null;
+        if(e.getRoute()!=null) {
+            route = e.getRoute();
+        } else if(e.getDynamicRoutingSlip()!=null) {
+            route = e.getDynamicRoutingSlip().getCurrentRoute();
+            e.setRoute(route);
+        }
+        return route;
     }
 
     public void registerBusStatusListener (BusStatusListener busStatusListener) {
