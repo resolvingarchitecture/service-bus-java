@@ -6,10 +6,10 @@ import ra.common.service.BaseService;
 
 public class MockService extends BaseService {
 
-    public static final int id = 10;
+    public static final String id = "10";
 
     @Override
     public void handleDocument(Envelope envelope) {
-        Assert.assertTrue(envelope.getId() == id);
+        Assert.assertTrue(envelope.getId().equals(id));
     }
 }
