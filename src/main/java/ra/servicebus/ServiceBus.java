@@ -204,19 +204,19 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         this.status = status;
         switch(status) {
             case Starting: {
-                LOG.info("1M5 Service Bus is Starting");
+                LOG.info("RA Service Bus is Starting");
                 break;
             }
             case Running: {
-                LOG.info("1M5 Service Bus is Running");
+                LOG.info("RA Service Bus is Running");
                 break;
             }
             case Stopping: {
-                LOG.info("1M5 Service Bus is Stopping");
+                LOG.info("RA Service Bus is Stopping");
                 break;
             }
             case Stopped: {
-                LOG.info("1M5 Service Bus has Stopped");
+                LOG.info("RA Service Bus has Stopped");
                 break;
             }
         }
