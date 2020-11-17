@@ -7,7 +7,6 @@ import ra.common.Status;
 import ra.common.messaging.MessageBus;
 import ra.common.messaging.MessageProducer;
 import ra.common.route.Route;
-import ra.common.route.RoutingSlip;
 import ra.common.service.*;
 import ra.sedabus.SEDABus;
 import ra.util.AppThread;
@@ -20,7 +19,7 @@ import java.util.logging.Logger;
 /**
  *
  */
-public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegistrar, ServiceStatusListener {
+public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegistrar {
 
     private static final Logger LOG = Logger.getLogger(ServiceBus.class.getName());
 
@@ -33,7 +32,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     private Map<String, BaseService> registeredServices;
     private Map<String, BaseService> runningServices;
 
-    private List<BusStatusListener> busStatusListeners = new ArrayList<>();
+    private final List<BusStatusListener> busStatusListeners = new ArrayList<>();
 
     public ServiceBus() {}
 
@@ -72,12 +71,16 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     }
 
     private Route determineRoute(Envelope e) {
-        Route route = null;
-        if(e.getRoute()!=null) {
-            route = e.getRoute();
-        } else if(e.getDynamicRoutingSlip()!=null) {
-            route = e.getDynamicRoutingSlip().getCurrentRoute();
-            e.setRoute(route);
+        Route route = e.getRoute();
+        if(route==null || route.getRouted()) {
+            if(e.getDynamicRoutingSlip()!=null) {
+                if(e.getDynamicRoutingSlip().getCurrentRoute()!=null
+                    && !e.getDynamicRoutingSlip().getCurrentRoute().getRouted()) {
+                    route = e.getDynamicRoutingSlip().getCurrentRoute();
+                } else if(e.getDynamicRoutingSlip().peekAtNextRoute()!=null) {
+                    e.ratchet();
+                }
+            }
         }
         return route;
     }
@@ -90,35 +93,31 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         busStatusListeners.remove(busStatusListener);
     }
 
-    public boolean registerService(Class serviceClass, Properties p, List<ServiceStatusObserver> observers) throws ServiceNotAccessibleException, ServiceNotSupportedException {
-        if(registeredServices.containsKey(serviceClass.getName())) {
-            LOG.info("Service already registered, skipping: "+serviceClass.getName());
+    public boolean registerService(String serviceName, Properties p) throws ServiceNotAccessibleException, ServiceNotSupportedException {
+        if(registeredServices.containsKey(serviceName)) {
+            LOG.info("Service already registered, skipping: "+serviceName);
             return true;
         }
-        LOG.info("Registering service class: "+serviceClass.getName());
+        LOG.info("Registering service class: "+serviceName);
         if(p != null && p.size() > 0)
             properties.putAll(p);
-        final String serviceName = serviceClass.getName();
         try {
             final BaseService service = (BaseService)Class.forName(serviceName).getConstructor().newInstance();
             // Ensure dependent services are registered
             if(service.getServicesDependentUpon()!=null && service.getServicesDependentUpon().size() > 0) {
-                for(Class c : service.getServicesDependentUpon()) {
-                    registerService(c, properties, null);
+                for(String c : service.getServicesDependentUpon()) {
+                    registerService(c, properties);
                 }
             }
             // Continue registering this service
             service.setProducer(this);
+            service.setObserver(this);
             mBus.registerChannel(serviceName);
             mBus.registerAsynchConsumer(serviceName, service);
             // register service
             registeredServices.put(serviceName, service);
-            service.registerServiceStatusListener(this);
             service.setRegistered(true);
-            if(observers != null) {
-                LOG.info("Registering ServiceStatusObservers with service: "+service.getClass().getName());
-                registerServiceStatusObservers(serviceClass, observers);
-            }
+
             LOG.info("Service registered successfully: "+serviceName);
             // init registered service
             new AppThread(new Runnable() {
@@ -151,9 +150,8 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         return true;
     }
 
-    public boolean unregisterService(Class serviceClass) {
-        if(runningServices.containsKey(serviceClass.getName())) {
-            final String serviceName = serviceClass.getName();
+    public boolean unregisterService(String serviceName) {
+        if(runningServices.containsKey(serviceName)) {
             final BaseService service = runningServices.get(serviceName);
             new AppThread(new Runnable() {
                 @Override
@@ -168,36 +166,6 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             }, serviceName+"-ShutdownThread").start();
         }
         return true;
-    }
-
-    public void registerServiceStatusObservers(Class serviceClass, List<ServiceStatusObserver> observers) {
-        if(registeredServices.containsKey(serviceClass.getName())) {
-            BaseService service = registeredServices.get(serviceClass.getName());
-            LOG.info("Registering ServiceStatusObservers with service: "+service.getClass().getName());
-            service.registerServiceStatusObservers(observers);
-        }
-    }
-
-    public void unregisterServiceStatusObservers(Class serviceClass, ServiceStatusObserver observer) {
-        if(registeredServices.containsKey(serviceClass.getName())) {
-            BaseService service = registeredServices.get(serviceClass.getName());
-            LOG.info("Unregistering ServiceStatusObserver with service: "+service.getClass().getName());
-            service.unregisterServiceStatusObserver(observer);
-        }
-    }
-
-    public List<ServiceReport> serviceReports(){
-        List<ServiceReport> serviceReports = new ArrayList<>(registeredServices.size());
-        ServiceReport r;
-        for(BaseService s : registeredServices.values()) {
-            r = new ServiceReport();
-            r.registered = true;
-            r.running = runningServices.containsKey(s.getClass().getName());
-            r.serviceClassName = s.getClass().getName();
-            r.serviceStatus = s.getServiceStatus();
-            serviceReports.add(r);
-        }
-        return serviceReports;
     }
 
     private void updateStatus(Status status) {
@@ -226,7 +194,6 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         }
     }
 
-    @Override
     public void serviceStatusChanged(String serviceFullName, ServiceStatus serviceStatus) {
         LOG.info("Service ("+serviceFullName+") reporting new status("+serviceStatus.name()+") to Bus.");
         switch(serviceStatus) {

@@ -34,7 +34,7 @@ public class ServiceBusTest {
 
     @Test
     public void verifyPointToPoint() throws ServiceNotAccessibleException, ServiceNotSupportedException, ServiceRegisteredException {
-        bus.registerService(MockService.class, props, null);
+        bus.registerService(MockService.class.getName(), props);
 
         Envelope env = Envelope.documentFactory(MockService.id);
         DLC.addRoute(MockService.class.getName(),"Send", env);
