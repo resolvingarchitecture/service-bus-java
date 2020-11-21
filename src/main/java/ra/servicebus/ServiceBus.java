@@ -11,7 +11,11 @@ import ra.common.service.*;
 import ra.sedabus.SEDABus;
 import ra.util.AppThread;
 import ra.util.Config;
+import ra.util.FileUtil;
+import ra.util.SystemSettings;
 
+import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 import java.util.logging.Logger;
@@ -31,6 +35,8 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
 
     private Map<String, BaseService> registeredServices;
     private Map<String, BaseService> runningServices;
+
+    private String deadLetterFilePath;
 
     private final List<BusStatusListener> busStatusListeners = new ArrayList<>();
 
@@ -68,6 +74,12 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         } else {
             return mBus.publish(e, client);
         }
+    }
+
+    @Override
+    public boolean deadLetter(Envelope envelope) {
+        new Thread(new PersistDeadLetter(envelope, deadLetterFilePath)).start();
+        return true;
     }
 
     private Route determineRoute(Envelope e) {
@@ -251,11 +263,36 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     public boolean start(Properties properties) {
         updateStatus(Status.Starting);
         try {
-            this.properties = Config.loadFromClasspath("ra-servicebus.config", properties, false);
+            this.properties = Config.loadAll(properties, "ra-servicebus.config");
         } catch (Exception e) {
             LOG.warning(e.getLocalizedMessage());
             this.properties = properties;
         }
+        String baseLocation;
+        File baseLocDir;
+        if(properties.contains("ra.sedabus.locationBase")) {
+            baseLocation = properties.getProperty("ra.sedabus.locationBase");
+            baseLocDir = new File(baseLocation);
+        } else {
+            try {
+                baseLocDir = SystemSettings.getUserAppDataDir(".ra", this.getClass().getName(), true);
+                baseLocation = baseLocDir.getAbsolutePath();
+            } catch (IOException e) {
+                LOG.severe(e.getLocalizedMessage());
+                return false;
+            }
+        }
+        if(!baseLocDir.exists() && !baseLocDir.mkdir()) {
+            LOG.severe("Unable to start Service Bus due to unable to create base directory: " + baseLocation);
+            return false;
+        }
+        File deadLetterFile = new File(baseLocDir, "deadLetter.json");
+        if(!deadLetterFile.exists() && !deadLetterFile.mkdir()) {
+            LOG.severe("Unable to start Service Bus due to unable to create dead letter directory: " + baseLocDir.getAbsolutePath() + "/deadLetter.json");
+            return false;
+        }
+        deadLetterFilePath = deadLetterFile.getAbsolutePath();
+
         String mBusType = properties.getProperty("ra.servicebus.mbus");
         if(mBusType!=null) {
             try {
