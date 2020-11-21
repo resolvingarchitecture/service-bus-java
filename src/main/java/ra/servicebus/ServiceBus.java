@@ -291,8 +291,13 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             return false;
         }
         File deadLetterFile = new File(baseLocDir, "deadLetter.json");
-        if(!deadLetterFile.exists() && !deadLetterFile.mkdir()) {
-            LOG.severe("Unable to start Service Bus due to unable to create dead letter directory: " + baseLocDir.getAbsolutePath() + "/deadLetter.json");
+        try {
+            if(!deadLetterFile.exists() && !deadLetterFile.createNewFile()) {
+                LOG.severe("Unable to start Service Bus due to unable to create dead letter file: " + baseLocDir.getAbsolutePath() + "/deadLetter.json");
+                return false;
+            }
+        } catch (IOException e) {
+            LOG.severe(e.getLocalizedMessage());
             return false;
         }
         deadLetterFilePath = deadLetterFile.getAbsolutePath();
