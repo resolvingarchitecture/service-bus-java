@@ -106,11 +106,15 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     }
 
     public boolean registerService(String serviceName, Properties p) throws ServiceNotAccessibleException, ServiceNotSupportedException {
-        if(registeredServices.containsKey(serviceName)) {
-            LOG.info("Service already registered, skipping: "+serviceName);
+        return registerService(serviceName, serviceName, p);
+    }
+
+    public boolean registerService(String interfaceName, String serviceName, Properties p) throws ServiceNotAccessibleException, ServiceNotSupportedException {
+        if(registeredServices.containsKey(interfaceName)) {
+            LOG.info("Service already registered, skipping: interface class is "+interfaceName+ " with service class: "+serviceName);
             return true;
         }
-        LOG.info("Registering service class: "+serviceName);
+        LOG.info("Registering interface class: "+interfaceName+" with service class: "+serviceName);
         if(p != null && p.size() > 0)
             properties.putAll(p);
         try {
@@ -124,10 +128,10 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             // Continue registering this service
             service.setProducer(this);
             service.setObserver(this);
-            mBus.registerChannel(serviceName);
-            mBus.registerAsynchConsumer(serviceName, service);
+            mBus.registerChannel(interfaceName);
+            mBus.registerAsynchConsumer(interfaceName, service);
             // register service
-            registeredServices.put(serviceName, service);
+            registeredServices.put(interfaceName, service);
             service.setRegistered(true);
 
             LOG.info("Service registered successfully: "+serviceName);
@@ -136,7 +140,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
                 @Override
                 public void run() {
                     if(service.start(properties)) {
-                        runningServices.put(serviceName, service);
+                        runningServices.put(interfaceName, service);
                         LOG.info("Service registered successfully as running: "+serviceName);
                     } else {
                         LOG.warning("Registered service failed to start: "+serviceName);
