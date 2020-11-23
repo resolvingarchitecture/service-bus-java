@@ -12,6 +12,7 @@ import ra.sedabus.SEDABus;
 import ra.util.AppThread;
 import ra.util.Config;
 import ra.util.SystemSettings;
+import ra.util.Wait;
 
 import java.io.File;
 import java.io.IOException;
@@ -356,8 +357,9 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     @Override
     public boolean shutdown() {
         updateStatus(Status.Stopping);
+        controlSocketThread.interrupt();
         for(final String serviceName : runningServices.keySet()) {
-            new AppThread(new Runnable() {
+            Thread t = new Thread(new Runnable() {
                 @Override
                 public void run() {
                     BaseService service = runningServices.get(serviceName);
@@ -365,7 +367,9 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
                         runningServices.remove(serviceName);
                     }
                 }
-            }, serviceName+"-ShutdownThread").start();
+            }, serviceName+"-ShutdownThread");
+            t.setDaemon(true);
+            t.start();
         }
         if(mBus.shutdown()) {
             updateStatus(Status.Stopped);
@@ -383,8 +387,19 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     @Override
     public boolean gracefulShutdown() {
         updateStatus(Status.Stopping);
-        for(final String serviceName : runningServices.keySet()) {
-            Thread t = new Thread(new Runnable() {
+        controlSocket.shutdown();
+        int maxWaitMs = 3 * 1000; // 3 seconds
+        int currentWaitMs = 0;
+        while(controlSocket.isRunning()) {
+            Wait.aSec(100); // Wait 100ms for Control Socket to complete current client request
+            currentWaitMs += 100;
+            if(currentWaitMs > maxWaitMs) {
+                break; // Stop waiting, continue on with shutdown
+            }
+        }
+        List<String> keys = new ArrayList<>(runningServices.keySet());
+        for(final String serviceName : keys) {
+            AppThread t = new AppThread(new Runnable() {
                 @Override
                 public void run() {
                     BaseService service = runningServices.get(serviceName);
@@ -395,6 +410,16 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             }, serviceName+"-GracefulShutdownThread");
             t.setDaemon(true);
             t.start();
+        }
+        boolean allServicesShutdown = false;
+        while(!allServicesShutdown) {
+            Wait.aSec(1000);
+            for(String key : keys) {
+                if(runningServices.get(key)!=null) {
+                    break; // break out of for
+                }
+            }
+            allServicesShutdown = true;
         }
         if(mBus.gracefulShutdown()) {
             updateStatus(Status.Stopped);
