@@ -30,6 +30,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
 
     private Properties properties;
     private ControlSocket controlSocket;
+    private Thread controlSocketThread;
 
     private MessageBus mBus;
 
@@ -323,13 +324,11 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         runningServices = new HashMap<>(15);
 
         // TODO: Launch ControlSocket
-//        controlSocket = new ControlSocket();
-//        controlSocket.start();
-//        System.out.println("\r\nRunning Server: " +
-//                "Host=" + controlSocket.getSocketAddress().getHostAddress() +
-//                " Port=" + controlSocket.getPort());
-//
-//        controlSocket.listen();
+        controlSocket = new ControlSocket(this);
+        controlSocketThread = new Thread(controlSocket);
+        controlSocketThread.setName("ServiceBus-ControlSocket");
+        controlSocketThread.setDaemon(true);
+        controlSocketThread.start();
 
         return true;
     }
