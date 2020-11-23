@@ -11,7 +11,6 @@ import ra.common.service.*;
 import ra.sedabus.SEDABus;
 import ra.util.AppThread;
 import ra.util.Config;
-import ra.util.FileUtil;
 import ra.util.SystemSettings;
 
 import java.io.File;
@@ -30,6 +29,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     private Status status = Status.Stopped;
 
     private Properties properties;
+    private ControlSocket controlSocket;
 
     private MessageBus mBus;
 
@@ -203,6 +203,10 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
                 LOG.info("RA Service Bus has Stopped");
                 break;
             }
+            case Errored: {
+                LOG.warning("RA Service Bus has erroed.");
+                break;
+            }
         }
         LOG.info("Updating Bus Status Listeners; size="+busStatusListeners.size());
         for(BusStatusListener l : busStatusListeners) {
@@ -318,6 +322,15 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         registeredServices = new HashMap<>(15);
         runningServices = new HashMap<>(15);
 
+        // TODO: Launch ControlSocket
+//        controlSocket = new ControlSocket();
+//        controlSocket.start();
+//        System.out.println("\r\nRunning Server: " +
+//                "Host=" + controlSocket.getSocketAddress().getHostAddress() +
+//                " Port=" + controlSocket.getPort());
+//
+//        controlSocket.listen();
+
         return true;
     }
 
@@ -355,7 +368,13 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
                 }
             }, serviceName+"-ShutdownThread").start();
         }
-        return mBus.shutdown();
+        if(mBus.shutdown()) {
+            updateStatus(Status.Stopped);
+        } else {
+            updateStatus(Status.Errored);
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -378,7 +397,13 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             t.setDaemon(true);
             t.start();
         }
-        return mBus.gracefulShutdown();
+        if(mBus.gracefulShutdown()) {
+            updateStatus(Status.Stopped);
+        } else {
+            updateStatus(Status.Errored);
+            return false;
+        }
+        return true;
     }
 
     public Status getStatus() {
