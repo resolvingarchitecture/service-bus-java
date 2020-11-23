@@ -24,6 +24,7 @@ public class ControlSocket implements BusStatusListener, Runnable {
     private ServerSocket server;
     private Map<String, Client> clients = new HashMap<>();
     private boolean running = false;
+    private boolean shutdown = false;
 
     ControlSocket(ServiceBus bus) {
         this.bus = bus;
@@ -50,6 +51,7 @@ public class ControlSocket implements BusStatusListener, Runnable {
             LOG.severe(e.getLocalizedMessage());
             return;
         }
+        LOG.info("Control Socket on " + ipAddress + " listening on " + port);
         running = true;
         while(running) {
             String data = null;
@@ -75,6 +77,9 @@ public class ControlSocket implements BusStatusListener, Runnable {
                 LOG.severe(e.getLocalizedMessage());
                 return;
             }
+            if(shutdown) {
+                running = false;
+            }
         }
     }
 
@@ -84,6 +89,14 @@ public class ControlSocket implements BusStatusListener, Runnable {
 
     public int getPort() {
         return this.server.getLocalPort();
+    }
+
+    public void shutdown() {
+        shutdown = true;
+    }
+
+    public boolean isRunning() {
+        return running;
     }
 
     @Override
