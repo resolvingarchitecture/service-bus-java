@@ -22,7 +22,7 @@ public class ServiceBusTest {
     public static void init() {
         LOG.info("Init...");
         props = new Properties();
-        bus = new ServiceBus();
+        bus = new ServiceBus(props);
         bus.start(props);
     }
 

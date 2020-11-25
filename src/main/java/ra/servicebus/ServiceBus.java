@@ -23,14 +23,14 @@ import java.util.logging.Logger;
 /**
  *
  */
-public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegistrar {
+public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegistrar, Runnable {
 
     private static final Logger LOG = Logger.getLogger(ServiceBus.class.getName());
 
     private Status status = Status.Stopped;
 
     private Properties properties;
-    private ControlSocket controlSocket;
+    private BusController busController;
     private Thread controlSocketThread;
 
     private MessageBus mBus;
@@ -42,7 +42,14 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
 
     private final List<BusStatusListener> busStatusListeners = new ArrayList<>();
 
-    public ServiceBus() {}
+    public ServiceBus(Properties properties) {
+        this.properties = properties;
+    }
+
+    @Override
+    public void run() {
+        start(properties);
+    }
 
     @Override
     public boolean send(Envelope e) {
@@ -324,9 +331,8 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         registeredServices = new HashMap<>(15);
         runningServices = new HashMap<>(15);
 
-        // TODO: Launch ControlSocket
-        controlSocket = new ControlSocket(this);
-        controlSocketThread = new Thread(controlSocket);
+        busController = new BusController(this);
+        controlSocketThread = new Thread(busController);
         controlSocketThread.setName("ServiceBus-ControlSocket");
         controlSocketThread.setDaemon(true);
         controlSocketThread.start();
@@ -387,10 +393,10 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     @Override
     public boolean gracefulShutdown() {
         updateStatus(Status.Stopping);
-        controlSocket.shutdown();
+        busController.shutdown();
         int maxWaitMs = 3 * 1000; // 3 seconds
         int currentWaitMs = 0;
-        while(controlSocket.isRunning()) {
+        while(busController.isRunning()) {
             Wait.aSec(100); // Wait 100ms for Control Socket to complete current client request
             currentWaitMs += 100;
             if(currentWaitMs > maxWaitMs) {
