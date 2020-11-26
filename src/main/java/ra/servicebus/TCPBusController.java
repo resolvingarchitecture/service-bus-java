@@ -39,7 +39,7 @@ public class TCPBusController implements BusStatusListener, Runnable {
     @Override
     public void run() {
         try {
-            this.serverSocket = new ServerSocket(HANDSHAKE_PORT, 5, InetAddress.getLocalHost());
+            this.serverSocket = new ServerSocket(HANDSHAKE_PORT);
         } catch (IOException e) {
             LOG.severe(e.getLocalizedMessage());
             return;

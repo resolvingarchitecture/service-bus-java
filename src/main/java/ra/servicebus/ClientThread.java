@@ -84,6 +84,7 @@ public class ClientThread implements Runnable {
                         break;
                     }
                     case StartService: {
+                        String serviceClass = (String)env.getValue("serviceClass");
 
                         break;
                     }

@@ -29,8 +29,8 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
 
     private Status status = Status.Stopped;
 
-    private Properties properties;
-    private TCPBusController TCPBusController;
+    private Properties config;
+    private TCPBusController tcpBusController;
     private Thread controlSocketThread;
 
     private MessageBus mBus;
@@ -42,13 +42,13 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
 
     private final List<BusStatusListener> busStatusListeners = new ArrayList<>();
 
-    public ServiceBus(Properties properties) {
-        this.properties = properties;
+    public ServiceBus(Properties config) {
+        this.config = config;
     }
 
     @Override
     public void run() {
-        start(properties);
+        start(config);
     }
 
     @Override
@@ -125,13 +125,13 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         }
         LOG.info("Registering interface class: "+interfaceName+" with service class: "+serviceName);
         if(p != null && p.size() > 0)
-            properties.putAll(p);
+            config.putAll(p);
         try {
             final BaseService service = (BaseService)Class.forName(serviceName).getConstructor().newInstance();
             // Ensure dependent services are registered
             if(service.getServicesDependentUpon()!=null && service.getServicesDependentUpon().size() > 0) {
                 for(String c : service.getServicesDependentUpon()) {
-                    registerService(c, properties);
+                    registerService(c, config);
                 }
             }
             // Continue registering this service
@@ -144,18 +144,6 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             service.setRegistered(true);
 
             LOG.info("Service registered successfully: "+serviceName);
-            // init registered service
-            new AppThread(new Runnable() {
-                @Override
-                public void run() {
-                    if(service.start(properties)) {
-                        runningServices.put(interfaceName, service);
-                        LOG.info("Service registered successfully as running: "+serviceName);
-                    } else {
-                        LOG.warning("Registered service failed to start: "+serviceName);
-                    }
-                }
-            }, serviceName+"-StartupThread").start();
         } catch (InstantiationException e) {
             LOG.warning(e.getLocalizedMessage());
             throw new ServiceNotSupportedException(e);
@@ -176,6 +164,44 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     }
 
     public boolean unregisterService(String serviceName) {
+        if(registeredServices.containsKey(serviceName)) {
+            final BaseService service = registeredServices.get(serviceName);
+            new AppThread(new Runnable() {
+                @Override
+                public void run() {
+                    if(service.shutdown()) {
+                        registeredServices.remove(serviceName);
+                        service.setRegistered(false);
+                        LOG.info("Service unregistered successfully: "+serviceName);
+                    }
+                }
+            }, serviceName+"-ShutdownThread").start();
+        }
+        return true;
+    }
+
+    public boolean startService(String serviceName) {
+        // init registered service
+        if(registeredServices.containsKey(serviceName)) {
+            final BaseService service = registeredServices.get(serviceName);
+            new AppThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (service.start(config)) {
+                        runningServices.put(serviceName, service);
+                        LOG.info("Service registered successfully as running: " + serviceName);
+                    } else {
+                        LOG.warning("Registered service failed to start: " + serviceName);
+                    }
+                }
+            }, serviceName + "-StartupThread").start();
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    public boolean stopService(String serviceName) {
         if(runningServices.containsKey(serviceName)) {
             final BaseService service = runningServices.get(serviceName);
             new AppThread(new Runnable() {
@@ -183,8 +209,6 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
                 public void run() {
                     if(service.shutdown()) {
                         runningServices.remove(serviceName);
-                        registeredServices.remove(serviceName);
-                        service.setRegistered(false);
                         LOG.info("Service unregistered successfully: "+serviceName);
                     }
                 }
@@ -280,10 +304,10 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     public boolean start(Properties properties) {
         updateStatus(Status.Starting);
         try {
-            this.properties = Config.loadAll(properties, "ra-servicebus.config");
+            this.config = Config.loadAll(properties, "ra-servicebus.config");
         } catch (Exception e) {
             LOG.warning(e.getLocalizedMessage());
-            this.properties = properties;
+            this.config = properties;
         }
         String baseLocation;
         File baseLocDir;
@@ -326,13 +350,13 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         } else {
             mBus = new SEDABus();
         }
-        mBus.start(this.properties);
+        mBus.start(this.config);
 
         registeredServices = new HashMap<>(15);
         runningServices = new HashMap<>(15);
 
-        TCPBusController = new TCPBusController(this);
-        controlSocketThread = new Thread(TCPBusController);
+        tcpBusController = new TCPBusController(config,this);
+        controlSocketThread = new Thread(tcpBusController);
         controlSocketThread.setName("ServiceBus-ControlSocket");
         controlSocketThread.setDaemon(true);
         controlSocketThread.start();
@@ -393,10 +417,10 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     @Override
     public boolean gracefulShutdown() {
         updateStatus(Status.Stopping);
-        TCPBusController.shutdown();
+        tcpBusController.shutdown();
         int maxWaitMs = 3 * 1000; // 3 seconds
         int currentWaitMs = 0;
-        while(TCPBusController.isRunning()) {
+        while(tcpBusController.isRunning()) {
             Wait.aSec(100); // Wait 100ms for Control Socket to complete current client request
             currentWaitMs += 100;
             if(currentWaitMs > maxWaitMs) {
