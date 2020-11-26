@@ -30,7 +30,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     private Status status = Status.Stopped;
 
     private Properties properties;
-    private BusController busController;
+    private TCPBusController TCPBusController;
     private Thread controlSocketThread;
 
     private MessageBus mBus;
@@ -331,8 +331,8 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         registeredServices = new HashMap<>(15);
         runningServices = new HashMap<>(15);
 
-        busController = new BusController(this);
-        controlSocketThread = new Thread(busController);
+        TCPBusController = new TCPBusController(this);
+        controlSocketThread = new Thread(TCPBusController);
         controlSocketThread.setName("ServiceBus-ControlSocket");
         controlSocketThread.setDaemon(true);
         controlSocketThread.start();
@@ -393,10 +393,10 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     @Override
     public boolean gracefulShutdown() {
         updateStatus(Status.Stopping);
-        busController.shutdown();
+        TCPBusController.shutdown();
         int maxWaitMs = 3 * 1000; // 3 seconds
         int currentWaitMs = 0;
-        while(busController.isRunning()) {
+        while(TCPBusController.isRunning()) {
             Wait.aSec(100); // Wait 100ms for Control Socket to complete current client request
             currentWaitMs += 100;
             if(currentWaitMs > maxWaitMs) {
