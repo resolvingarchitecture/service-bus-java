@@ -1,6 +1,7 @@
 package ra.servicebus;
 
 import ra.common.Envelope;
+import ra.common.Status;
 import ra.common.network.ControlCommand;
 import ra.common.service.ServiceNotAccessibleException;
 import ra.common.service.ServiceNotSupportedException;
@@ -54,7 +55,11 @@ public class ClientThread implements Runnable {
                         break;
                     }
                     case Start: {
-                        env.addContent(bus.start(config));
+                        if(bus.getStatus() == Status.Stopped) {
+                            env.addContent(bus.start(config)?"Started":"Start Failed");
+                        } else {
+                            env.addContent("Bus not Stopped");
+                        }
                         writer.write(env.toJSON());
                         break;
                     }
