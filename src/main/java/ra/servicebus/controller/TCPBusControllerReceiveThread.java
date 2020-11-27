@@ -1,57 +1,55 @@
-package ra.servicebus;
+package ra.servicebus.controller;
 
 import ra.common.Envelope;
 import ra.common.Status;
 import ra.common.network.ControlCommand;
 import ra.common.service.ServiceNotAccessibleException;
 import ra.common.service.ServiceNotSupportedException;
+import ra.servicebus.ServiceBus;
+import ra.util.Wait;
 
 import java.io.*;
-import java.net.Socket;
 import java.util.Map;
 import java.util.Properties;
 import java.util.logging.Logger;
 
-public class ClientThread implements Runnable {
+public class TCPBusControllerReceiveThread implements Runnable {
 
-    private static final Logger LOG = Logger.getLogger(ClientThread.class.getName());
+    private static Logger LOG = Logger.getLogger(TCPBusControllerReceiveThread.class.getName());
 
-    private Boolean shutdown = false;
-    private Properties config;
     private ServiceBus bus;
-    private Socket socket;
+    private Properties config;
+    private TCPBusController tcpBusController;
+    private BufferedReader readFromClient = null;
+    private boolean running = false;
 
-    public ClientThread(Properties config, ServiceBus bus, Socket socket) {
-        this.config = config;
+    public TCPBusControllerReceiveThread(ServiceBus bus, Properties config, TCPBusController tcpBusController, BufferedReader readFromClient) {
         this.bus = bus;
-        this.socket = socket;
+        this.config = config;
+        this.tcpBusController = tcpBusController;
+        this.readFromClient = readFromClient;
     }
 
-    void shutdown() {
-        shutdown = true;
-    }
-
-    @Override
     public void run() {
-        InputStream input = null;
-        OutputStream output = null;
         try {
-            input = socket.getInputStream();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(input));
-
-            output = socket.getOutputStream();
-            PrintWriter writer = new PrintWriter(output, true);
-
-            while (!shutdown) {
-                String json = reader.readLine();
-                LOG.info(json);
+            running = true;
+            while(running) {
+                String json = readFromClient.readLine();
+                if(json==null || json.isEmpty()) {
+                    LOG.info("No data in stream - wait a sec");
+                    Wait.aSec(1);
+                    continue;
+                } else {
+                    LOG.info(json);
+                }
                 Envelope env = Envelope.documentFactory();
                 env.fromJSON(json);
                 ControlCommand cc = ControlCommand.valueOf(env.getCommandPath());
+                LOG.info("ControlCommand: "+env.getCommandPath());
                 switch (cc) {
                     case InitiateComm: {
                         env.addContent("init");
-                        writer.write(env.toJSON());
+                        tcpBusController.sendMessage(env.toJSONRaw());
                         break;
                     }
                     case Start: {
@@ -60,7 +58,7 @@ public class ClientThread implements Runnable {
                         } else {
                             env.addContent("Bus not Stopped");
                         }
-                        writer.write(env.toJSON());
+                        tcpBusController.sendMessage(env.toJSONRaw());
                         break;
                     }
                     case RegisterService: {
@@ -81,7 +79,7 @@ public class ClientThread implements Runnable {
                         } catch (ServiceNotSupportedException e) {
                             env.addContent(e.getClass().getSimpleName());
                         }
-                        writer.write(env.toJSON());
+                        tcpBusController.sendMessage(env.toJSONRaw());
                         break;
                     }
                     case UnregisterService: {
@@ -138,7 +136,10 @@ public class ClientThread implements Runnable {
                         break;
                     }
                     case Ack: {
-
+                        int count = (Integer)env.getContent();
+                        LOG.info("Incoming count: "+count);
+                        env.addContent(count+1);
+                        tcpBusController.sendMessage(env.toJSONRaw());
                         break;
                     }
                     case EndComm: {
@@ -147,16 +148,8 @@ public class ClientThread implements Runnable {
                     }
                 }
             }
-        } catch (IOException e) {
-            LOG.warning(e.getLocalizedMessage());
-        } finally {
-            try {
-                if(output!=null)
-                    output.close();
-                if(input!=null)
-                    input.close();
-                socket.close();
-            } catch (IOException e) {}
+        } catch(Exception exp) {
+            exp.printStackTrace();
         }
     }
 }

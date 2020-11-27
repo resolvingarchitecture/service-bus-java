@@ -9,6 +9,7 @@ import ra.common.messaging.MessageProducer;
 import ra.common.route.Route;
 import ra.common.service.*;
 import ra.sedabus.SEDABus;
+import ra.servicebus.controller.TCPBusController;
 import ra.util.AppThread;
 import ra.util.Config;
 import ra.util.SystemSettings;
@@ -30,7 +31,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     private Status status = Status.Stopped;
 
     private Properties config;
-    private TCPBusController tcpBusController;
+    private ra.servicebus.controller.TCPBusController TCPBusController;
     private Thread controlSocketThread;
 
     private MessageBus mBus;
@@ -355,12 +356,11 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         registeredServices = new HashMap<>(15);
         runningServices = new HashMap<>(15);
 
-        tcpBusController = new TCPBusController(config,this);
-        controlSocketThread = new Thread(tcpBusController);
+        TCPBusController = new TCPBusController(this, config, 2013);
+        controlSocketThread = new Thread(TCPBusController);
         controlSocketThread.setName("ServiceBus-ControlSocket");
         controlSocketThread.setDaemon(true);
         controlSocketThread.start();
-
         return true;
     }
 
@@ -417,10 +417,10 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     @Override
     public boolean gracefulShutdown() {
         updateStatus(Status.Stopping);
-        tcpBusController.shutdown();
+        TCPBusController.shutdown();
         int maxWaitMs = 3 * 1000; // 3 seconds
         int currentWaitMs = 0;
-        while(tcpBusController.isRunning()) {
+        while(TCPBusController.isRunning()) {
             Wait.aSec(100); // Wait 100ms for Control Socket to complete current client request
             currentWaitMs += 100;
             if(currentWaitMs > maxWaitMs) {
