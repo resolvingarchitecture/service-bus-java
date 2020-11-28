@@ -11,6 +11,7 @@ import ra.util.Wait;
 import java.io.*;
 import java.util.Map;
 import java.util.Properties;
+import java.util.UUID;
 import java.util.logging.Logger;
 
 public class TCPBusControllerReceiveThread implements Runnable {
@@ -22,6 +23,7 @@ public class TCPBusControllerReceiveThread implements Runnable {
     private TCPBusController tcpBusController;
     private BufferedReader readFromClient = null;
     private boolean running = false;
+    private UUID client;
 
     public TCPBusControllerReceiveThread(ServiceBus bus, Properties config, TCPBusController tcpBusController, BufferedReader readFromClient) {
         this.bus = bus;
@@ -48,8 +50,14 @@ public class TCPBusControllerReceiveThread implements Runnable {
                 LOG.info("ControlCommand: "+env.getCommandPath());
                 switch (cc) {
                     case InitiateComm: {
-                        env.addContent("init");
-                        tcpBusController.sendMessage(env.toJSONRaw());
+                        String clientIdStr = env.getClient();
+                        if(clientIdStr==null) {
+                            env.addErrorMessage("No Client Id");
+                        } else {
+                            client = UUID.fromString(env.getClient());
+                            env.addNVP("init","true");
+                        }
+                        tcpBusController.sendMessage(env);
                         break;
                     }
                     case Start: {
@@ -58,7 +66,7 @@ public class TCPBusControllerReceiveThread implements Runnable {
                         } else {
                             env.addContent("Bus not Stopped");
                         }
-                        tcpBusController.sendMessage(env.toJSONRaw());
+                        tcpBusController.sendMessage(env);
                         break;
                     }
                     case RegisterService: {
@@ -79,7 +87,7 @@ public class TCPBusControllerReceiveThread implements Runnable {
                         } catch (ServiceNotSupportedException e) {
                             env.addContent(e.getClass().getSimpleName());
                         }
-                        tcpBusController.sendMessage(env.toJSONRaw());
+                        tcpBusController.sendMessage(env);
                         break;
                     }
                     case UnregisterService: {
@@ -136,10 +144,13 @@ public class TCPBusControllerReceiveThread implements Runnable {
                         break;
                     }
                     case Ack: {
-                        int count = (Integer)env.getContent();
-                        LOG.info("Incoming count: "+count);
-                        env.addContent(count+1);
-                        tcpBusController.sendMessage(env.toJSONRaw());
+                        String senderId = env.getClient();
+                        if(tcpBusController.id.toString().equals(senderId)) {
+                            LOG.info("Sent Ack returned Acknowledged.");
+                        } else {
+                            LOG.info("Client requesting ack; returning...");
+                            tcpBusController.sendMessage(env);
+                        }
                         break;
                     }
                     case EndComm: {

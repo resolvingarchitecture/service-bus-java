@@ -1,5 +1,6 @@
 package ra.servicebus.controller;
 
+import ra.common.Envelope;
 import ra.servicebus.ServiceBus;
 import ra.util.Wait;
 
@@ -10,15 +11,17 @@ import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Properties;
+import java.util.UUID;
 import java.util.logging.Logger;
 
 public class TCPBusController implements Runnable {
 
     private static final Logger LOG = Logger.getLogger(TCPBusController.class.getName());
 
-    ServiceBus bus;
-    Properties config;
-    private Integer port;
+    final UUID id;
+    final ServiceBus bus;
+    final Properties config;
+    private final Integer port;
 
     private ServerSocket serverSocket;
     private Socket socket;
@@ -29,6 +32,7 @@ public class TCPBusController implements Runnable {
     private boolean running = false;
 
     public TCPBusController(ServiceBus bus, Properties config, Integer port) {
+        id = UUID.randomUUID();
         this.bus = bus;
         this.config = config;
         this.port = port;
@@ -66,7 +70,7 @@ public class TCPBusController implements Runnable {
         }
     }
 
-    public void sendMessage(String message) {
-        sendThread.sendMessage(message);
+    public void sendMessage(Envelope message) {
+        sendThread.sendMessage(message.toJSONRaw());
     }
 }
