@@ -18,9 +18,6 @@ import ra.util.Wait;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.util.*;
 import java.util.logging.Logger;
 
@@ -44,7 +41,6 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     private Map<String, BaseService> runningServices;
 
     private String deadLetterFilePath;
-    private String servicesLibraryDirectoryPath;
 
     private final List<BusStatusListener> busStatusListeners = new ArrayList<>();
 
@@ -348,28 +344,6 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             return false;
         }
         deadLetterFilePath = deadLetterFile.getAbsolutePath();
-
-        File servicesLibraryDirectory = new File(baseLocDir, "slib");
-        if(!servicesLibraryDirectory.exists() && !servicesLibraryDirectory.mkdir()) {
-            LOG.severe("Unable to create service library directory at: "+baseLocation+"/slib");
-            return false;
-        } else {
-            servicesLibraryDirectoryPath = servicesLibraryDirectory.getAbsolutePath();
-        }
-        // Add this directory to the current classpath
-        URL serviceLibURL = null;
-        try {
-            serviceLibURL = new URL("file:///"+servicesLibraryDirectoryPath);
-        } catch (MalformedURLException e) {
-            LOG.severe(e.getLocalizedMessage());
-            return false;
-        }
-//        URLClassLoader cl = new URLClassLoader("ServiceLibCL", new URL[]{serviceLibURL}, this.getClass().getClassLoader());
-        String classpathStr = System.getProperty("java.class.path");
-        LOG.info(classpathStr);
-        System.setProperty("java.class.path",classpathStr+":"+servicesLibraryDirectoryPath);
-        String classpathStr2 = System.getProperty("java.class.path");
-        LOG.info(classpathStr2);
 
         String mBusType = properties.getProperty("ra.servicebus.mbus");
         if(mBusType!=null) {
