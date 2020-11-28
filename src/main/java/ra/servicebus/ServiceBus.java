@@ -31,7 +31,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     private Status status = Status.Stopped;
 
     private Properties config;
-    private ra.servicebus.controller.TCPBusController TCPBusController;
+    private ra.servicebus.controller.TCPBusController tcpBusController;
     private Thread controlSocketThread;
 
     private MessageBus mBus;
@@ -362,8 +362,8 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         registeredServices = new HashMap<>(15);
         runningServices = new HashMap<>(15);
 
-        TCPBusController = new TCPBusController(this, config, 2013);
-        controlSocketThread = new Thread(TCPBusController);
+        tcpBusController = new TCPBusController(this, config, 2013);
+        controlSocketThread = new Thread(tcpBusController);
         controlSocketThread.setName("ServiceBus-ControlSocket");
         controlSocketThread.setDaemon(true);
         controlSocketThread.start();
@@ -423,11 +423,11 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     @Override
     public boolean gracefulShutdown() {
         updateStatus(Status.Stopping);
-        TCPBusController.shutdown();
+        tcpBusController.shutdown();
         int maxWaitMs = 3 * 1000; // 3 seconds
         int currentWaitMs = 0;
-        while(TCPBusController.isRunning()) {
-            Wait.aSec(100); // Wait 100ms for Control Socket to complete current client request
+        while(tcpBusController.isRunning()) {
+            Wait.aMs(100); // Wait 100ms for Control Socket to complete current client request
             currentWaitMs += 100;
             if(currentWaitMs > maxWaitMs) {
                 break; // Stop waiting, continue on with shutdown
@@ -449,7 +449,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         }
         boolean allServicesShutdown = false;
         while(!allServicesShutdown) {
-            Wait.aSec(1000);
+            Wait.aSec(1);
             for(String key : keys) {
                 if(runningServices.get(key)!=null) {
                     break; // break out of for
