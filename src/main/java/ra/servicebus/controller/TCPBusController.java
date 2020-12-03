@@ -14,6 +14,10 @@ import java.util.Properties;
 import java.util.UUID;
 import java.util.logging.Logger;
 
+/**
+ * Enables Control of Bus over TCP Socket
+ * TODO: Enable control from multiple clients
+ */
 public class TCPBusController implements Runnable {
 
     private static final Logger LOG = Logger.getLogger(TCPBusController.class.getName());
