@@ -22,7 +22,8 @@ public class TCPBusController implements Runnable {
 
     private static final Logger LOG = Logger.getLogger(TCPBusController.class.getName());
 
-    final UUID id;
+    final String id;
+    String clientId;
     final ServiceBus bus;
     final Properties config;
     private final Integer port;
@@ -36,7 +37,7 @@ public class TCPBusController implements Runnable {
     private boolean running = false;
 
     public TCPBusController(ServiceBus bus, Properties config, Integer port) {
-        id = UUID.randomUUID();
+        id = UUID.randomUUID().toString();
         this.bus = bus;
         this.config = config;
         this.port = port;
@@ -47,6 +48,8 @@ public class TCPBusController implements Runnable {
     }
 
     public void shutdown() {
+        if(receiveThread!=null) receiveThread.shutdown();
+        if(sendThread!=null) sendThread.shutdown();
         running = false;
     }
 
@@ -75,6 +78,7 @@ public class TCPBusController implements Runnable {
     }
 
     public void sendMessage(Envelope message) {
+        message.setClient(id);
         sendThread.sendMessage(message.toJSONRaw());
     }
 }

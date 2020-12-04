@@ -1,5 +1,6 @@
 package ra.servicebus.controller;
 
+import ra.common.Client;
 import ra.common.Envelope;
 import ra.common.Status;
 import ra.common.network.ControlCommand;
@@ -11,10 +12,9 @@ import ra.util.Wait;
 import java.io.*;
 import java.util.Map;
 import java.util.Properties;
-import java.util.UUID;
 import java.util.logging.Logger;
 
-public class TCPBusControllerReceiveThread implements Runnable {
+public class TCPBusControllerReceiveThread implements Client, Runnable {
 
     private static Logger LOG = Logger.getLogger(TCPBusControllerReceiveThread.class.getName());
 
@@ -23,13 +23,21 @@ public class TCPBusControllerReceiveThread implements Runnable {
     private TCPBusController tcpBusController;
     private BufferedReader readFromClient = null;
     private boolean running = false;
-    private UUID client;
 
     public TCPBusControllerReceiveThread(ServiceBus bus, Properties config, TCPBusController tcpBusController, BufferedReader readFromClient) {
         this.bus = bus;
         this.config = config;
         this.tcpBusController = tcpBusController;
         this.readFromClient = readFromClient;
+    }
+
+    public void shutdown() {
+        running = false;
+    }
+
+    @Override
+    public void reply(Envelope envelope) {
+        tcpBusController.sendMessage(envelope);
     }
 
     public void run() {
@@ -54,19 +62,14 @@ public class TCPBusControllerReceiveThread implements Runnable {
                         if(clientIdStr==null) {
                             env.addErrorMessage("No Client Id");
                         } else {
-                            client = UUID.fromString(env.getClient());
+                            tcpBusController.clientId = clientIdStr;
                             env.addNVP("init","true");
                         }
                         tcpBusController.sendMessage(env);
                         break;
                     }
-                    case Start: {
-                        if(bus.getStatus() == Status.Stopped) {
-                            env.addContent(bus.start(config)?"Started":"Start Failed");
-                        } else {
-                            env.addContent("Bus not Stopped");
-                        }
-                        tcpBusController.sendMessage(env);
+                    case Send: {
+                        bus.send(env, this);
                         break;
                     }
                     case RegisterService: {
@@ -119,6 +122,15 @@ public class TCPBusControllerReceiveThread implements Runnable {
 
                         break;
                     }
+                    case Start: {
+                        if(bus.getStatus() == Status.Stopped) {
+                            env.addContent(bus.start(config)?"Started":"Start Failed");
+                        } else {
+                            env.addContent("Bus not Stopped");
+                        }
+                        tcpBusController.sendMessage(env);
+                        break;
+                    }
                     case Pause: {
 
                         break;
@@ -154,7 +166,7 @@ public class TCPBusControllerReceiveThread implements Runnable {
                         break;
                     }
                     case EndComm: {
-
+                        tcpBusController.clientId = null;
                         break;
                     }
                 }
