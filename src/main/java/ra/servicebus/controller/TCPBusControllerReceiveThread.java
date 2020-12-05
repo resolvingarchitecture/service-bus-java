@@ -21,13 +21,15 @@ public class TCPBusControllerReceiveThread implements Client, Runnable {
     private ServiceBus bus;
     private Properties config;
     private TCPBusController tcpBusController;
+    private String socketAddress;
     private BufferedReader readFromClient = null;
     private boolean running = false;
 
-    public TCPBusControllerReceiveThread(ServiceBus bus, Properties config, TCPBusController tcpBusController, BufferedReader readFromClient) {
+    public TCPBusControllerReceiveThread(ServiceBus bus, Properties config, TCPBusController tcpBusController, String socketAddress, BufferedReader readFromClient) {
         this.bus = bus;
         this.config = config;
         this.tcpBusController = tcpBusController;
+        this.socketAddress = socketAddress;
         this.readFromClient = readFromClient;
     }
 
@@ -44,10 +46,11 @@ public class TCPBusControllerReceiveThread implements Client, Runnable {
         try {
             running = true;
             while(running) {
+                // Wait for client to send data
                 String json = readFromClient.readLine();
                 if(json==null || json.isEmpty()) {
-                    LOG.info("No data in stream - wait a sec");
-                    Wait.aSec(1);
+                    LOG.info("No data in stream; client likely closed so close down connection.");
+                    tcpBusController.shutdown(socketAddress);
                     continue;
                 } else {
                     LOG.info(json);
@@ -62,7 +65,7 @@ public class TCPBusControllerReceiveThread implements Client, Runnable {
                         if(clientIdStr==null) {
                             env.addErrorMessage("No Client Id");
                         } else {
-                            tcpBusController.clientId = clientIdStr;
+                            tcpBusController.clientSocketAddresses.put(clientIdStr, socketAddress);
                             env.addNVP("init","true");
                         }
                         tcpBusController.sendMessage(env);
@@ -73,53 +76,55 @@ public class TCPBusControllerReceiveThread implements Client, Runnable {
                         break;
                     }
                     case RegisterService: {
-                        String interfaceName = (String)env.getValue("interfaceName");
-                        String serviceClass = (String)env.getValue("serviceClass");
-                        Map<String,String> serviceConfig = (Map<String,String>)env.getValue("serviceConfig");
-                        Properties p = new Properties();
-                        p.putAll(serviceConfig);
-                        boolean serviceRegistered = false;
-                        try {
-                            if(interfaceName==null)
-                                serviceRegistered = bus.registerService(serviceClass, p);
-                            else
-                                serviceRegistered = bus.registerService(interfaceName, serviceClass, p);
-                            env.addContent(serviceRegistered);
-                        } catch (ServiceNotAccessibleException e) {
-                            env.addContent(e.getClass().getSimpleName());
-                        } catch (ServiceNotSupportedException e) {
-                            env.addContent(e.getClass().getSimpleName());
-                        }
-                        tcpBusController.sendMessage(env);
+                        env.addContent("RegisterService not supported at this time.");
+//                        String interfaceName = (String)env.getValue("interfaceName");
+//                        String serviceClass = (String)env.getValue("serviceClass");
+//                        Map<String,String> serviceConfig = (Map<String,String>)env.getValue("serviceConfig");
+//                        Properties p = new Properties();
+//                        p.putAll(serviceConfig);
+//                        boolean serviceRegistered = false;
+//                        try {
+//                            if(interfaceName==null)
+//                                serviceRegistered = bus.registerService(serviceClass, p);
+//                            else
+//                                serviceRegistered = bus.registerService(interfaceName, serviceClass, p);
+//                            env.addContent(serviceRegistered);
+//                        } catch (ServiceNotAccessibleException e) {
+//                            env.addContent(e.getClass().getSimpleName());
+//                        } catch (ServiceNotSupportedException e) {
+//                            env.addContent(e.getClass().getSimpleName());
+//                        }
+//                        tcpBusController.sendMessage(env);
                         break;
                     }
                     case UnregisterService: {
-
+                        env.addContent("UnregisterService not supported at this time.");
                         break;
                     }
                     case StartService: {
-                        String serviceClass = (String)env.getValue("serviceClass");
+                        env.addContent("StartService not supported at this time.");
+//                        String serviceClass = (String)env.getValue("serviceClass");
 
                         break;
                     }
                     case PauseService: {
-
+                        env.addContent("PauseService not supported at this time.");
                         break;
                     }
                     case UnPauseService: {
-
+                        env.addContent("UnPauseService not supported at this time.");
                         break;
                     }
                     case RestartService: {
-
+                        env.addContent("RestartService not supported at this time.");
                         break;
                     }
                     case StopService: {
-
+                        env.addContent("StopService not supported at this time.");
                         break;
                     }
                     case GracefullyStopService: {
-
+                        env.addContent("GracefullyStopService not supported at this time.");
                         break;
                     }
                     case Start: {
@@ -132,47 +137,50 @@ public class TCPBusControllerReceiveThread implements Client, Runnable {
                         break;
                     }
                     case Pause: {
-
+                        env.addContent("Pause not supported at this time.");
                         break;
                     }
                     case UnPause: {
-
+                        env.addContent("UnPause not supported at this time.");
                         break;
                     }
                     case Restart: {
+                        env.addContent("Restart not supported at this time.");
+                        if(tcpBusController.clients.size() <= 1) {
+                            // Ensure only one client using this bus
 
-                        break;
-                    }
-                    case Shutdown: {
-
-                        break;
-                    }
-                    case GracefullyShutdown: {
-
-                        break;
-                    }
-                    case CloseClient: {
-
-                        break;
-                    }
-                    case Ack: {
-                        String senderId = env.getClient();
-                        if(tcpBusController.id.toString().equals(senderId)) {
-                            LOG.info("Sent Ack returned Acknowledged.");
-                        } else {
-                            LOG.info("Client requesting ack; returning...");
-                            tcpBusController.sendMessage(env);
                         }
                         break;
                     }
+                    case Shutdown: {
+                        env.addContent("Shutdown not supported at this time.");
+                        if(tcpBusController.clients.size() <= 1) {
+                            // Ensure only one client using this bus
+
+                        }
+                        break;
+                    }
+                    case GracefullyShutdown: {
+                        env.addContent("GracefullyShutdown not supported at this time.");
+                        break;
+                    }
+                    case CloseClient: {
+                        // Client is letting bus controller know it's closing so close socket
+                        tcpBusController.shutdown(tcpBusController.clientSocketAddresses.get(env.getClient()));
+                        break;
+                    }
+                    case Ack: {
+                        env.addContent("Ack not supported at this time.");
+                        break;
+                    }
                     case EndComm: {
-                        tcpBusController.clientId = null;
+                        env.addContent("EndComm not supported at this time.");
                         break;
                     }
                 }
             }
         } catch(Exception exp) {
-            exp.printStackTrace();
+            LOG.warning(exp.getLocalizedMessage());
         }
     }
 }
