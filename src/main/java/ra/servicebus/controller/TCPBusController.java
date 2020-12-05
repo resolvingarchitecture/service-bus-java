@@ -96,7 +96,7 @@ public class TCPBusController implements Runnable {
                 LOG.info("Waiting for new connection...");
                 Socket socket = serverSocket.accept();
                 String socketAddress = socket.getRemoteSocketAddress().toString();
-                LOG.info("Connection accepted...");
+                LOG.info("Connection accepted from: "+socketAddress);
                 TCPBusControllerReceiveThread receiveThread = new TCPBusControllerReceiveThread(
                         bus,
                         config,
