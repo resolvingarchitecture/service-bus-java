@@ -31,7 +31,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     private Status status = Status.Stopped;
 
     private Properties config;
-    private ra.servicebus.controller.TCPBusController tcpBusController;
+    private TCPBusController tcpBusController;
     private Thread controlSocketThread;
 
     private MessageBus mBus;
@@ -64,6 +64,11 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         if(route==null || route.getRouted()) {
             // End of route
             LOG.info("End of Route");
+            if(e.getClient()!=null) {
+                tcpBusController.endOfRoute(e);
+            } else {
+                mBus.completed(e);
+            }
             return true;
         } else {
             return mBus.publish(e);
@@ -81,6 +86,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         if(route==null || route.getRouted()) {
             // End of route
             LOG.info("End of Route");
+            mBus.completed(e);
             return true;
         } else {
             return mBus.publish(e, client);

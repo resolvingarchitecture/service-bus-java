@@ -47,6 +47,12 @@ public class TCPBusController implements Runnable {
         return running;
     }
 
+    public void endOfRoute(Envelope envelope) {
+        if(envelope.getClient()!=null && envelope.getClient().equals(clientId)) {
+            sendMessage(envelope);
+        }
+    }
+
     public void shutdown() {
         if(receiveThread!=null) receiveThread.shutdown();
         if(sendThread!=null) sendThread.shutdown();
