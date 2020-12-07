@@ -78,24 +78,27 @@ public class TCPBusControllerReceiveThread implements Client, Runnable {
                     }
                     case RegisterService: {
                         env.addContent("RegisterService not supported at this time.");
-//                        String interfaceName = (String)env.getValue("interfaceName");
-//                        String serviceClass = (String)env.getValue("serviceClass");
-//                        Map<String,String> serviceConfig = (Map<String,String>)env.getValue("serviceConfig");
-//                        Properties p = new Properties();
-//                        p.putAll(serviceConfig);
-//                        boolean serviceRegistered = false;
-//                        try {
-//                            if(interfaceName==null)
-//                                serviceRegistered = bus.registerService(serviceClass, p);
-//                            else
-//                                serviceRegistered = bus.registerService(interfaceName, serviceClass, p);
-//                            env.addContent(serviceRegistered);
-//                        } catch (ServiceNotAccessibleException e) {
-//                            env.addContent(e.getClass().getSimpleName());
-//                        } catch (ServiceNotSupportedException e) {
-//                            env.addContent(e.getClass().getSimpleName());
-//                        }
-//                        tcpBusController.sendMessage(env);
+                        String interfaceName = (String)env.getValue("interfaceName");
+                        String serviceClass = (String)env.getValue("serviceClass");
+                        Map<String,String> serviceConfig = (Map<String,String>)env.getValue("serviceConfig");
+                        Properties p = new Properties();
+                        if(serviceConfig!=null) {
+                            p.putAll(serviceConfig);
+                        }
+                        boolean serviceRegistered = false;
+                        try {
+                            if(interfaceName==null) {
+                                serviceRegistered = bus.registerService(serviceClass, p);
+                            } else {
+                                serviceRegistered = bus.registerService(interfaceName, serviceClass, p);
+                            }
+                            env.addContent(serviceRegistered);
+                        } catch (ServiceNotAccessibleException e) {
+                            env.addContent(e.getClass().getSimpleName());
+                        } catch (ServiceNotSupportedException e) {
+                            env.addContent(e.getClass().getSimpleName());
+                        }
+                        tcpBusController.sendMessage(env);
                         break;
                     }
                     case UnregisterService: {
@@ -104,8 +107,9 @@ public class TCPBusControllerReceiveThread implements Client, Runnable {
                     }
                     case StartService: {
                         env.addContent("StartService not supported at this time.");
-//                        String serviceClass = (String)env.getValue("serviceClass");
-
+                        String serviceClass = (String)env.getValue("serviceClass");
+                        boolean serviceStarted = bus.startService(serviceClass);
+                        env.addContent(serviceStarted);
                         break;
                     }
                     case PauseService: {

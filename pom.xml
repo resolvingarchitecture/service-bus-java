@@ -47,6 +47,12 @@
 			<version>1.0.0</version>
 		</dependency>
 
+        <dependency>
+            <groupId>resolvingarchitecture</groupId>
+            <artifactId>notification</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
 		<dependency>
 			<groupId>resolvingarchitecture</groupId>
 			<artifactId>common</artifactId>
