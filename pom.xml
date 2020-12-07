@@ -53,6 +53,18 @@
             <version>1.0.0</version>
         </dependency>
 
+        <dependency>
+            <groupId>resolvingarchitecture</groupId>
+            <artifactId>did</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>resolvingarchitecture</groupId>
+            <artifactId>keyring</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
 		<dependency>
 			<groupId>resolvingarchitecture</groupId>
 			<artifactId>common</artifactId>

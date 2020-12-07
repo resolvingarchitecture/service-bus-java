@@ -8,6 +8,9 @@ import ra.common.messaging.MessageBus;
 import ra.common.messaging.MessageProducer;
 import ra.common.route.Route;
 import ra.common.service.*;
+import ra.did.DIDService;
+import ra.keyring.KeyRingService;
+import ra.notification.NotificationService;
 import ra.sedabus.SEDABus;
 import ra.servicebus.controller.TCPBusController;
 import ra.util.AppThread;
@@ -370,6 +373,25 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         registeredServices = new HashMap<>(15);
         runningServices = new HashMap<>(15);
 
+        // Register supported services
+        try {
+            registerService(NotificationService.class.getName(), config);
+            registerService(DIDService.class.getName(), config);
+            registerService(KeyRingService.class.getName(), config);
+        } catch (ServiceNotAccessibleException e) {
+            LOG.severe(e.getLocalizedMessage());
+            return false;
+        } catch (ServiceNotSupportedException e) {
+            LOG.severe(e.getLocalizedMessage());
+            return false;
+        }
+
+        // Start infrastructure services
+        startService(NotificationService.class.getName());
+        startService(DIDService.class.getName());
+        startService(KeyRingService.class.getName());
+
+        // Start TCP Bus Controller
         tcpBusController = new TCPBusController(this, config, 2013);
         controlSocketThread = new Thread(tcpBusController);
         controlSocketThread.setName("ServiceBus-ControlSocket");
