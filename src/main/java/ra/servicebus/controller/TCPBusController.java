@@ -19,8 +19,7 @@ import java.util.UUID;
 import java.util.logging.Logger;
 
 /**
- * Enables Control of Bus over TCP Socket
- * TODO: Enable control from multiple clients
+ * Enables Control of Bus over TCP Socket by multiple clients (up to 30)
  */
 public class TCPBusController implements Runnable {
 
@@ -38,9 +37,6 @@ public class TCPBusController implements Runnable {
     private final Integer port;
 
     private ServerSocket serverSocket;
-//    private Socket socket;
-//    private TCPBusControllerReceiveThread receiveThread;
-//    private TCPBusControllerSendThread sendThread;
     private boolean running = false;
 
     public TCPBusController(ServiceBus bus, Properties config, Integer port) {
@@ -52,10 +48,6 @@ public class TCPBusController implements Runnable {
 
     public boolean isRunning() {
         return running;
-    }
-
-    public void endOfRoute(Envelope envelope) {
-        sendMessage(envelope);
     }
 
     public void shutdown(String clientSocketAddress) {
@@ -74,8 +66,6 @@ public class TCPBusController implements Runnable {
     }
 
     public void shutdown() {
-//        if(receiveThread!=null) receiveThread.shutdown();
-//        if(sendThread!=null) sendThread.shutdown();
         for(String clientSocketAddress : clientSocketAddresses.values()) {
             shutdown(clientSocketAddress);
         }
@@ -97,39 +87,40 @@ public class TCPBusController implements Runnable {
                 Socket socket = serverSocket.accept();
                 String socketAddress = socket.getRemoteSocketAddress().toString();
                 LOG.info("Connection accepted from: "+socketAddress);
+                TCPBusControllerSendThread sendThread = new TCPBusControllerSendThread(new PrintWriter(socket.getOutputStream(), true));
                 TCPBusControllerReceiveThread receiveThread = new TCPBusControllerReceiveThread(
                         bus,
                         config,
                         this,
                         socketAddress,
                         new BufferedReader(new InputStreamReader(socket.getInputStream())));
-                TCPBusControllerSendThread sendThread = new TCPBusControllerSendThread(new PrintWriter(socket.getOutputStream(), true));
-                Thread receive = new Thread(receiveThread);
                 Thread send = new Thread(sendThread);
-                receive.start();
+                Thread receive = new Thread(receiveThread);
                 send.start();
-                Tuple3<Socket,TCPBusControllerReceiveThread, TCPBusControllerSendThread> t = new Tuple3<>(socket, receiveThread, sendThread);
-                clients.put(socket.getRemoteSocketAddress().toString(), t);
+                receive.start();
+                clients.put(socketAddress, new Tuple3<>(socket, receiveThread, sendThread));
             }
         } catch (IOException e) {
             LOG.severe(e.getLocalizedMessage());
         }
     }
 
-    public void sendMessage(Envelope message) {
-        if(message.getClient()==null) {
+    public boolean sendMessage(Envelope envelope) {
+        if(envelope.getClient()==null) {
             // Not meant to be sent to client
-            LOG.fine("Not meant to be sent to client - ignoring; envelope.id: "+message.getId());
-            return;
+            LOG.info("Not meant to be sent to client - ignoring; envelope.id: "+envelope.getId());
+            return true;
         }
-        String socketAddress = clientSocketAddresses.get(message.getClient());
+        String socketAddress = clientSocketAddresses.get(envelope.getClient());
         if(socketAddress==null) {
             // Client no longer around, log it
-            LOG.warning("Client no longer around to send message; \n\tenvelope.clientId: "+message.getClient()+" \n\tenvelope.id: "+message.getId());
-            return;
+            LOG.warning("Client no longer around to send message; \n\tenvelope.clientId: "+envelope.getClient()+" \n\tenvelope.id: "+envelope.getId());
+            return false;
         }
         Tuple3<Socket,TCPBusControllerReceiveThread, TCPBusControllerSendThread> t = clients.get(socketAddress);
-        message.setClient(id); // Set client to this server socket
-        t.third.sendMessage(message.toJSONRaw());
+        envelope.setClient(id); // Set client to this server socket
+        t.third.sendMessage(envelope.toJSONRaw());
+        return true;
     }
+
 }

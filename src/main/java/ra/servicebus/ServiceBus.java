@@ -64,12 +64,14 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         if(route==null || route.getRouted()) {
             // End of route
             LOG.info("End of Route");
-            if(e.getClient()!=null) {
-                tcpBusController.endOfRoute(e);
+            if (e.getClient() != null) {
+                tcpBusController.sendMessage(e);
             } else {
                 mBus.completed(e);
             }
             return true;
+        } else if("TCPClient".equals(route.getService())) {
+            return tcpBusController.sendMessage(e);
         } else {
             return mBus.publish(e);
         }
