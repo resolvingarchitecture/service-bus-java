@@ -1,5 +1,7 @@
 package ra.servicebus;
 
+import net.i2p.client.I2PClient;
+import ra.bluetooth.BluetoothService;
 import ra.common.Client;
 import ra.common.Envelope;
 import ra.common.LifeCycle;
@@ -9,14 +11,19 @@ import ra.common.messaging.MessageProducer;
 import ra.common.route.Route;
 import ra.common.service.*;
 import ra.did.DIDService;
+import ra.gnuradio.GNURadioService;
+import ra.i2p.I2PService;
 import ra.keyring.KeyRingService;
+import ra.lifi.LiFiService;
 import ra.notification.NotificationService;
 import ra.sedabus.SEDABus;
 import ra.servicebus.controller.TCPBusController;
+import ra.tor.TORClientService;
 import ra.util.AppThread;
 import ra.util.Config;
 import ra.util.SystemSettings;
 import ra.util.Wait;
+import ra.wifidirect.WiFiDirectNetwork;
 
 import java.io.File;
 import java.io.IOException;
@@ -378,6 +385,12 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             registerService(NotificationService.class.getName(), config);
             registerService(DIDService.class.getName(), config);
             registerService(KeyRingService.class.getName(), config);
+            registerService(TORClientService.class.getName(), config);
+            registerService(I2PService.class.getName(), config);
+            registerService(BluetoothService.class.getName(), config);
+            registerService(WiFiDirectNetwork.class.getName(), config);
+            registerService(GNURadioService.class.getName(), config);
+            registerService(LiFiService.class.getName(), config);
         } catch (ServiceNotAccessibleException e) {
             LOG.severe(e.getLocalizedMessage());
             return false;
