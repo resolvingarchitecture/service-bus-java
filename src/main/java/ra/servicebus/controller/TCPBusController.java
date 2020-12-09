@@ -106,7 +106,7 @@ public class TCPBusController implements Runnable {
     }
 
     public boolean sendMessage(Envelope envelope) {
-        if(envelope.getClient()==null) {
+        if(envelope.getClient()==null && !"TCPClient".equals(envelope.getRoute().getService())) {
             // Not meant to be sent to client
             LOG.info("Not meant to be sent to client - ignoring; envelope.id: "+envelope.getId());
             return true;

@@ -4,7 +4,6 @@ import ra.common.Client;
 import ra.common.Envelope;
 import ra.common.Status;
 import ra.common.network.ControlCommand;
-import ra.common.notification.SubscriptionRequest;
 import ra.common.service.ServiceNotAccessibleException;
 import ra.common.service.ServiceNotSupportedException;
 import ra.servicebus.ServiceBus;

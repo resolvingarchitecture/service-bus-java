@@ -1,6 +1,5 @@
 package ra.servicebus;
 
-import net.i2p.client.I2PClient;
 import ra.bluetooth.BluetoothService;
 import ra.common.Client;
 import ra.common.Envelope;
@@ -15,6 +14,7 @@ import ra.gnuradio.GNURadioService;
 import ra.i2p.I2PService;
 import ra.keyring.KeyRingService;
 import ra.lifi.LiFiService;
+import ra.networkmanager.NetworkManagerService;
 import ra.notification.NotificationService;
 import ra.sedabus.SEDABus;
 import ra.servicebus.controller.TCPBusController;
@@ -385,6 +385,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             registerService(NotificationService.class.getName(), config);
             registerService(DIDService.class.getName(), config);
             registerService(KeyRingService.class.getName(), config);
+            registerService(NetworkManagerService.class.getName(), config);
             registerService(TORClientService.class.getName(), config);
             registerService(I2PService.class.getName(), config);
             registerService(BluetoothService.class.getName(), config);
@@ -403,6 +404,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         startService(NotificationService.class.getName());
         startService(DIDService.class.getName());
         startService(KeyRingService.class.getName());
+        startService(NetworkManagerService.class.getName());
 
         // Start TCP Bus Controller
         tcpBusController = new TCPBusController(this, config, 2013);

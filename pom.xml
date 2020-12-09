@@ -73,6 +73,12 @@
 
         <dependency>
             <groupId>resolvingarchitecture</groupId>
+            <artifactId>network-manager</artifactId>
+            <version>1.0.1</version>
+        </dependency>
+
+        <dependency>
+            <groupId>resolvingarchitecture</groupId>
             <artifactId>i2p-client</artifactId>
             <version>1.0.0</version>
         </dependency>
