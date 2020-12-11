@@ -380,32 +380,6 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         registeredServices = new HashMap<>(15);
         runningServices = new HashMap<>(15);
 
-        // Register supported services
-        try {
-            registerService(NotificationService.class.getName(), config);
-            registerService(DIDService.class.getName(), config);
-            registerService(KeyRingService.class.getName(), config);
-            registerService(NetworkManagerService.class.getName(), config);
-            registerService(TORClientService.class.getName(), config);
-            registerService(I2PService.class.getName(), config);
-            registerService(BluetoothService.class.getName(), config);
-            registerService(WiFiDirectNetwork.class.getName(), config);
-            registerService(GNURadioService.class.getName(), config);
-            registerService(LiFiService.class.getName(), config);
-        } catch (ServiceNotAccessibleException e) {
-            LOG.severe(e.getLocalizedMessage());
-            return false;
-        } catch (ServiceNotSupportedException e) {
-            LOG.severe(e.getLocalizedMessage());
-            return false;
-        }
-
-        // Start infrastructure services
-        startService(NotificationService.class.getName());
-        startService(DIDService.class.getName());
-        startService(KeyRingService.class.getName());
-        startService(NetworkManagerService.class.getName());
-
         // Start TCP Bus Controller
         tcpBusController = new TCPBusController(this, config, 2013);
         controlSocketThread = new Thread(tcpBusController);
