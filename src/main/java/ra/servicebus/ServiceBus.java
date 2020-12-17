@@ -274,37 +274,18 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
                 break;
             }
             case RUNNING: {
-                if(allServicesWithStatus(ServiceStatus.RUNNING)) {
-                    LOG.info("All Services are RUNNING therefore Bus updating status to RUNNING.");
-                    updateStatus(Status.Running);
-                }
+                LOG.fine("Service ("+serviceFullName+") reporting Running.");
                 break;
             }
             case SHUTDOWN: {
-                if(allServicesWithStatus(ServiceStatus.SHUTDOWN)) {
-                    LOG.info("All Services are SHUTDOWN therefore Bus updating status to STOPPED.");
-                    updateStatus(Status.Stopped);
-                }
+                LOG.fine("Service ("+serviceFullName+") reporting Shutdown.");
                 break;
             }
             case GRACEFULLY_SHUTDOWN: {
-                if(allServicesWithStatus(ServiceStatus.GRACEFULLY_SHUTDOWN)) {
-                    LOG.info("All Services are GRACEFULLY_SHUTDOWN therefore Bus updating status to STOPPED.");
-                    updateStatus(Status.Stopped);
-                }
+                LOG.fine("Service ("+serviceFullName+") reporting Gracefully Shutdown.");
                 break;
             }
         }
-    }
-
-    private Boolean allServicesWithStatus(ServiceStatus serviceStatus) {
-        Collection<BaseService> services = registeredServices.values();
-        for(BaseService s : services) {
-            if(s.getServiceStatus() != serviceStatus){
-                return false;
-            }
-        }
-        return true;
     }
 
     /**
@@ -376,6 +357,8 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         controlSocketThread.setName("ServiceBus-ControlSocket");
         controlSocketThread.setDaemon(true);
         controlSocketThread.start();
+
+        updateStatus(Status.Running);
         return true;
     }
 
