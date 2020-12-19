@@ -5,14 +5,14 @@
 
     <groupId>resolvingarchitecture</groupId>
 	<artifactId>service-bus</artifactId>
-	<version>1.0.0</version>
+	<version>1.0.1</version>
 
 	<packaging>jar</packaging>
 
 	<name>ra-service-bus</name>
 	<url>https://resolvingarchitecture.io</url>
 	<description>Resolving Architecture - Service Bus - Java</description>
-	<inceptionYear>2017</inceptionYear>
+	<inceptionYear>2013</inceptionYear>
 
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -44,13 +44,13 @@
         <dependency>
             <groupId>resolvingarchitecture</groupId>
             <artifactId>common</artifactId>
-            <version>1.0.0</version>
+            <version>1.0.1</version>
         </dependency>
 
 		<dependency>
 			<groupId>resolvingarchitecture</groupId>
 			<artifactId>seda-bus</artifactId>
-			<version>1.0.0</version>
+			<version>1.0.1</version>
 		</dependency>
 
 		<!-- Test -->
