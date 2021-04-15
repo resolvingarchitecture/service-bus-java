@@ -9,7 +9,6 @@ import ra.common.messaging.MessageProducer;
 import ra.common.route.Route;
 import ra.common.service.*;
 import ra.sedabus.SEDABus;
-import ra.servicebus.controller.TCPBusController;
 import ra.util.AppThread;
 import ra.util.Config;
 import ra.util.SystemSettings;
@@ -31,8 +30,6 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     private Status status = Status.Stopped;
 
     private Properties config;
-    private TCPBusController tcpBusController;
-    private Thread controlSocketThread;
 
     private MessageBus mBus;
 
@@ -64,14 +61,8 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         if(route==null || route.getRouted()) {
             // End of route
             LOG.info("End of Route");
-            if (e.getClient() != null) {
-                tcpBusController.sendMessage(e);
-            } else {
-                mBus.completed(e);
-            }
+            mBus.completed(e);
             return true;
-        } else if("TCPClient".equals(route.getService())) {
-            return tcpBusController.sendMessage(e);
         } else {
             return mBus.publish(e);
         }
@@ -79,20 +70,8 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
 
     @Override
     public boolean send(Envelope e, Client client) {
-        if(e==null) {
-            LOG.warning("Envelope is required.");
-            return false;
-        }
-        LOG.info("Received envelope.");
-        Route route = determineRoute(e);
-        if(route==null || route.getRouted()) {
-            // End of route
-            LOG.info("End of Route");
-            mBus.completed(e);
-            return true;
-        } else {
-            return mBus.publish(e, client);
-        }
+        LOG.severe("Clients not supported in Service Bus.");
+        return false;
     }
 
     @Override
@@ -351,13 +330,6 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         registeredServices = new HashMap<>(15);
         runningServices = new HashMap<>(15);
 
-        // Start TCP Bus Controller
-        tcpBusController = new TCPBusController(this, config, 2013);
-        controlSocketThread = new Thread(tcpBusController);
-        controlSocketThread.setName("ServiceBus-ControlSocket");
-        controlSocketThread.setDaemon(true);
-        controlSocketThread.start();
-
         updateStatus(Status.Running);
         return true;
     }
@@ -385,7 +357,6 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     @Override
     public boolean shutdown() {
         updateStatus(Status.Stopping);
-        controlSocketThread.interrupt();
         for(final String serviceName : runningServices.keySet()) {
             Thread t = new Thread(new Runnable() {
                 @Override
@@ -415,16 +386,6 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     @Override
     public boolean gracefulShutdown() {
         updateStatus(Status.Stopping);
-        tcpBusController.shutdown();
-        int maxWaitMs = 3 * 1000; // 3 seconds
-        int currentWaitMs = 0;
-        while(tcpBusController.isRunning()) {
-            Wait.aMs(100); // Wait 100ms for Control Socket to complete current client request
-            currentWaitMs += 100;
-            if(currentWaitMs > maxWaitMs) {
-                break; // Stop waiting, continue on with shutdown
-            }
-        }
         List<String> keys = new ArrayList<>(runningServices.keySet());
         for(final String serviceName : keys) {
             AppThread t = new AppThread(new Runnable() {
