@@ -38,6 +38,8 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
     private Map<String, BaseService> registeredServices;
     private Map<String, BaseService> runningServices;
 
+    private Map<String, Client> clients;
+
     private String deadLetterFilePath;
 
     private final List<BusStatusListener> busStatusListeners = new ArrayList<>();
@@ -103,6 +105,13 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         if (route == null || route.getRouted()) {
             // End of route
             LOG.info("End of Route");
+            if(e.replyToClient() && clients.containsKey(e.getId())) {
+                Client client = clients.get(e.getId());
+                if(client != null) {
+                    client.reply(e);
+                    clients.remove(e.getId());
+                }
+            }
             mBus.completed(e);
             return true;
         } else {
@@ -112,8 +121,9 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
 
     @Override
     public boolean send(Envelope e, Client client) {
-        LOG.severe("Clients not supported in Service Bus.");
-        return false;
+        clients.put(e.getId(), client);
+        e.setReplyToClient(true);
+        return send(e);
     }
 
     @Override
@@ -375,6 +385,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         availableServices = new ArrayList<>();
         registeredServices = new HashMap<>(15);
         runningServices = new HashMap<>(15);
+        clients = new HashMap<>(10);
 
         updateStatus(Status.Running);
         return true;
