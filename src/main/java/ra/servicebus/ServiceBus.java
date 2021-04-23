@@ -7,7 +7,6 @@ import ra.common.Status;
 import ra.common.messaging.MessageBus;
 import ra.common.messaging.MessageProducer;
 import ra.common.network.ControlCommand;
-import ra.common.route.Route;
 import ra.common.service.*;
 import ra.sedabus.SEDABus;
 import ra.util.AppThread;
@@ -61,91 +60,70 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         }
         LOG.info("Received envelope.");
         if(e.getCommandPath()!=null) {
-            ControlCommand cc = ControlCommand.valueOf(e.getCommandPath());
-            LOG.info("Received command ("+e.getCommandPath()+") for service bus...");
-            switch (cc) {
-                case RegisterService: {
-                    String interfaceClass = (String)e.getValue("interfaceClass");
-                    String serviceClass = (String)e.getValue("serviceClass");
-                    try {
-                        if(interfaceClass==null)
-                            registerService(serviceClass, config);
-                        else
-                            registerService(interfaceClass, serviceClass, config);
-                    } catch (ServiceNotAccessibleException serviceNotAccessibleException) {
-                        e.addErrorMessage("Interface: "+interfaceClass+"; Service: "+serviceClass+" Not Accessible by Service Bus. Unable to Register.");
-                    } catch (ServiceNotSupportedException serviceNotSupportedException) {
-                        e.addErrorMessage("Interface: "+interfaceClass+"; Service: "+serviceClass+" Not Supported by Service Bus. Unable to Register.");
-                    }
-                    break;
-                }
-                case UnregisterService: {
-                    String serviceClass = (String)e.getValue("serviceClass");
-                    unregisterService(serviceClass);
-                    break;
-                }
-                case StartService: {
-                    String serviceClass = (String)e.getValue("serviceClass");
-                    startService(serviceClass);
-                    break;
-                }
-                case StopService: {
-                    String serviceClass = (String)e.getValue("serviceClass");
-                    stopService(serviceClass, false);
-                    break;
-                }
-                case GracefullyStopService: {
-                    String serviceClass = (String)e.getValue("serviceClass");
-                    stopService(serviceClass, true);
-                    break;
-                }
-            }
+            processCommand(e);
         }
-        Route route = determineRoute(e);
-        if (route == null || route.getRouted()) {
-            // End of route
-            LOG.info("End of Route");
-            if(e.replyToClient() && clients.containsKey(e.getId())) {
-                Client client = clients.get(e.getId());
-                if(client != null) {
-                    client.reply(e);
-                    clients.remove(e.getId());
-                }
-            }
-            mBus.completed(e);
-            return true;
-        } else {
-            return mBus.publish(e);
-        }
+        return mBus.publish(e);
     }
 
     @Override
     public boolean send(Envelope e, Client client) {
-        clients.put(e.getId(), client);
-        e.setReplyToClient(true);
-        return send(e);
+        if(e==null) {
+            LOG.warning("Envelope is required.");
+            return false;
+        }
+        LOG.info("Received envelope with client.");
+        if(e.getCommandPath()!=null) {
+            processCommand(e);
+        }
+        return mBus.publish(e, client);
+    }
+
+    private void processCommand(Envelope e) {
+        ControlCommand cc = ControlCommand.valueOf(e.getCommandPath());
+        LOG.info("Received command ("+e.getCommandPath()+") for service bus...");
+        switch (cc) {
+            case RegisterService: {
+                String interfaceClass = (String)e.getValue("interfaceClass");
+                String serviceClass = (String)e.getValue("serviceClass");
+                try {
+                    if(interfaceClass==null)
+                        registerService(serviceClass, config);
+                    else
+                        registerService(interfaceClass, serviceClass, config);
+                } catch (ServiceNotAccessibleException serviceNotAccessibleException) {
+                    e.addErrorMessage("Interface: "+interfaceClass+"; Service: "+serviceClass+" Not Accessible by Service Bus. Unable to Register.");
+                } catch (ServiceNotSupportedException serviceNotSupportedException) {
+                    e.addErrorMessage("Interface: "+interfaceClass+"; Service: "+serviceClass+" Not Supported by Service Bus. Unable to Register.");
+                }
+                break;
+            }
+            case UnregisterService: {
+                String serviceClass = (String)e.getValue("serviceClass");
+                unregisterService(serviceClass);
+                break;
+            }
+            case StartService: {
+                String serviceClass = (String)e.getValue("serviceClass");
+                startService(serviceClass);
+                break;
+            }
+            case StopService: {
+                String serviceClass = (String)e.getValue("serviceClass");
+                stopService(serviceClass, false);
+                break;
+            }
+            case GracefullyStopService: {
+                String serviceClass = (String)e.getValue("serviceClass");
+                stopService(serviceClass, true);
+                break;
+            }
+        }
     }
 
     @Override
     public boolean deadLetter(Envelope envelope) {
         new Thread(new PersistDeadLetter(envelope, deadLetterFilePath)).start();
         return true;
-    }
-
-    private Route determineRoute(Envelope e) {
-        Route route = e.getRoute();
-        if(route==null || route.getRouted()) {
-            if(e.getDynamicRoutingSlip()!=null) {
-                if(e.getDynamicRoutingSlip().getCurrentRoute()!=null
-                    && !e.getDynamicRoutingSlip().getCurrentRoute().getRouted()) {
-                    route = e.getDynamicRoutingSlip().getCurrentRoute();
-                } else if(e.getDynamicRoutingSlip().peekAtNextRoute()!=null) {
-                    e.ratchet();
-                    route = e.getDynamicRoutingSlip().getCurrentRoute();
-                }
-            }
-        }
-        return route;
     }
 
     public void registerBusStatusListener (BusStatusListener busStatusListener) {
