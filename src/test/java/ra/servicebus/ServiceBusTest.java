@@ -6,7 +6,7 @@ import ra.common.Envelope;
 import ra.common.service.ServiceNotAccessibleException;
 import ra.common.service.ServiceNotSupportedException;
 import ra.common.service.ServiceRegisteredException;
-import ra.util.Wait;
+import ra.common.Wait;
 
 import java.util.Properties;
 import java.util.logging.Logger;

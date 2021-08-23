@@ -1,7 +1,7 @@
 package ra.servicebus;
 
 import ra.common.Envelope;
-import ra.util.FileUtil;
+import ra.common.FileUtil;
 
 import java.io.File;
 import java.io.IOException;

@@ -1,8 +1,8 @@
 package ra.servicebus;
 
 import ra.common.Status;
-import ra.util.Config;
-import ra.util.Wait;
+import ra.common.Config;
+import ra.common.Wait;
 
 import java.util.Properties;
 
