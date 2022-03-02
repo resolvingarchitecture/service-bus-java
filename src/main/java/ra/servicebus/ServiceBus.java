@@ -58,7 +58,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             LOG.warning("Envelope is required.");
             return false;
         }
-        LOG.info("Received envelope.");
+//        LOG.info("Received envelope.");
         if(e.getCommandPath()!=null) {
             processCommand(e);
         }
@@ -71,7 +71,7 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             LOG.warning("Envelope is required.");
             return false;
         }
-        LOG.info("Received envelope with client.");
+//        LOG.info("Received envelope with client.");
         if(e.getCommandPath()!=null) {
             processCommand(e);
         }
