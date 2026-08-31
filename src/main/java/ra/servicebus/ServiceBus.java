@@ -1,47 +1,76 @@
 package ra.servicebus;
 
+import ra.common.AppThread;
 import ra.common.Client;
+import ra.common.Config;
 import ra.common.Envelope;
 import ra.common.LifeCycle;
 import ra.common.Status;
+import ra.common.SystemSettings;
+import ra.common.Wait;
 import ra.common.messaging.MessageBus;
 import ra.common.messaging.MessageProducer;
 import ra.common.network.ControlCommand;
-import ra.common.service.*;
+import ra.common.service.BaseService;
+import ra.common.service.Service;
+import ra.common.service.ServiceNotAccessibleException;
+import ra.common.service.ServiceNotSupportedException;
+import ra.common.service.ServiceRegistrar;
+import ra.common.service.ServiceStatus;
 import ra.sedabus.SEDABus;
-import ra.common.AppThread;
-import ra.common.Config;
-import ra.common.SystemSettings;
-import ra.common.Wait;
 
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Logger;
 
 /**
+ * Manages the lifecycle of a set of {@link Service}s over a {@link MessageBus}.
  *
+ * <p>Responsibilities:
+ * <ul>
+ *   <li>register services (reflectively, dependency-ordered) - each becomes one bus
+ *       channel keyed by its class name, with the service as the channel's consumer;</li>
+ *   <li>start / stop / pause / restart services and the underlying bus;</li>
+ *   <li>let services and hosts <b>discover</b> each other ({@link #getService},
+ *       {@link #findRunningServices}, {@link #getRunningServices});</li>
+ *   <li>observe per-service {@link ServiceStatus} and auto-restart an
+ *       {@code UNSTABLE} service; publish status to {@link ServiceStatusListener}s;</li>
+ *   <li>accept {@link ControlCommand} envelopes so the bus is controllable over
+ *       itself;</li>
+ *   <li>route dead letters to a file.</li>
+ * </ul>
+ *
+ * <p>Prefer the {@code Class}-based overloads ({@link #registerService(Class)},
+ * {@link #registerAndStartService(Class)}, {@link #findRunningServices(Class)}); the
+ * {@code String}-based methods exist for the {@link ServiceRegistrar} contract and
+ * for {@link ControlCommand} handling.
  */
 public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegistrar, Runnable {
 
     private static final Logger LOG = Logger.getLogger(ServiceBus.class.getName());
 
-    private Status status = Status.Stopped;
+    private volatile Status status = Status.Stopped;
 
     private Properties config;
-
     private MessageBus mBus;
-
-    private List<String> availableServices;
-    private Map<String, BaseService> registeredServices;
-    private Map<String, BaseService> runningServices;
-
-    private Map<String, Client> clients;
-
     private String deadLetterFilePath;
 
-    private final List<BusStatusListener> busStatusListeners = new ArrayList<>();
+    private final Map<String, BaseService> registeredServices = new ConcurrentHashMap<>();
+    private final Map<String, BaseService> runningServices = new ConcurrentHashMap<>();
+    private final Map<String, ServiceStatus> serviceStatuses = new ConcurrentHashMap<>();
+
+    private final List<BusStatusListener> busStatusListeners = new CopyOnWriteArrayList<>();
+    private final List<ServiceStatusListener> serviceStatusListeners = new CopyOnWriteArrayList<>();
 
     public ServiceBus(Properties config) {
         this.config = config;
@@ -52,307 +81,379 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         start(config);
     }
 
+    // ------------------------------------------------------------------
+    // MessageProducer
+    // ------------------------------------------------------------------
+
     @Override
     public boolean send(Envelope e) {
-        if(e==null) {
-            LOG.warning("Envelope is required.");
-            return false;
-        }
-//        LOG.info("Received envelope.");
-        if(e.getCommandPath()!=null) {
-            processCommand(e);
-        }
+        if (e == null) { LOG.warning("Envelope is required."); return false; }
+        if (e.getCommandPath() != null) processCommand(e);
         return mBus.publish(e);
     }
 
     @Override
     public boolean send(Envelope e, Client client) {
-        if(e==null) {
-            LOG.warning("Envelope is required.");
-            return false;
-        }
-//        LOG.info("Received envelope with client.");
-        if(e.getCommandPath()!=null) {
-            processCommand(e);
-        }
+        if (e == null) { LOG.warning("Envelope is required."); return false; }
+        if (e.getCommandPath() != null) processCommand(e);
         return mBus.publish(e, client);
-    }
-
-    private void processCommand(Envelope e) {
-        ControlCommand cc = ControlCommand.valueOf(e.getCommandPath());
-        LOG.info("Received command ("+e.getCommandPath()+") for service bus...");
-        switch (cc) {
-            case RegisterService: {
-                String interfaceClass = (String)e.getValue("interfaceClass");
-                String serviceClass = (String)e.getValue("serviceClass");
-                try {
-                    if(interfaceClass==null)
-                        registerService(serviceClass, config);
-                    else
-                        registerService(interfaceClass, serviceClass, config);
-                } catch (ServiceNotAccessibleException serviceNotAccessibleException) {
-                    e.addErrorMessage("Interface: "+interfaceClass+"; Service: "+serviceClass+" Not Accessible by Service Bus. Unable to Register.");
-                } catch (ServiceNotSupportedException serviceNotSupportedException) {
-                    e.addErrorMessage("Interface: "+interfaceClass+"; Service: "+serviceClass+" Not Supported by Service Bus. Unable to Register.");
-                }
-                break;
-            }
-            case UnregisterService: {
-                String serviceClass = (String)e.getValue("serviceClass");
-                unregisterService(serviceClass);
-                break;
-            }
-            case StartService: {
-                String serviceClass = (String)e.getValue("serviceClass");
-                startService(serviceClass);
-                break;
-            }
-            case StopService: {
-                String serviceClass = (String)e.getValue("serviceClass");
-                stopService(serviceClass, false);
-                break;
-            }
-            case GracefullyStopService: {
-                String serviceClass = (String)e.getValue("serviceClass");
-                stopService(serviceClass, true);
-                break;
-            }
-        }
     }
 
     @Override
     public boolean deadLetter(Envelope envelope) {
-        new Thread(new PersistDeadLetter(envelope, deadLetterFilePath)).start();
+        new Thread(new PersistDeadLetter(envelope, deadLetterFilePath), "ServiceBus-DeadLetter").start();
         return true;
     }
 
-    public void registerBusStatusListener (BusStatusListener busStatusListener) {
-        busStatusListeners.add(busStatusListener);
+    private void processCommand(Envelope e) {
+        ControlCommand cc;
+        try {
+            cc = ControlCommand.valueOf(e.getCommandPath());
+        } catch (IllegalArgumentException iae) {
+            LOG.warning("Unknown ControlCommand: " + e.getCommandPath());
+            return;
+        }
+        LOG.info("Received command (" + cc.name() + ") for service bus...");
+        switch (cc) {
+            case RegisterService: {
+                String interfaceClass = (String) e.getValue("interfaceClass");
+                String serviceClass = (String) e.getValue("serviceClass");
+                try {
+                    if (interfaceClass == null) registerService(serviceClass, config);
+                    else registerService(interfaceClass, serviceClass, config);
+                } catch (ServiceNotAccessibleException x) {
+                    e.addErrorMessage("Service " + serviceClass + " not accessible; not registered.");
+                } catch (ServiceNotSupportedException x) {
+                    e.addErrorMessage("Service " + serviceClass + " not supported; not registered.");
+                }
+                break;
+            }
+            case UnregisterService:
+                unregisterService((String) e.getValue("serviceClass"));
+                break;
+            case StartService:
+                startService((String) e.getValue("serviceClass"));
+                break;
+            case StopService:
+                stopService((String) e.getValue("serviceClass"), false);
+                break;
+            case GracefullyStopService:
+                stopService((String) e.getValue("serviceClass"), true);
+                break;
+            default:
+                LOG.warning("ControlCommand not handled by ServiceBus: " + cc.name());
+        }
     }
 
-    public void unregisterBusStatusListener(BusStatusListener busStatusListener) {
-        busStatusListeners.remove(busStatusListener);
-    }
+    // ------------------------------------------------------------------
+    // Registration - String (ServiceRegistrar contract + ControlCommand)
+    // ------------------------------------------------------------------
 
-    public List<String> listAvailableServices() {
-        return availableServices;
-    }
-
-    public boolean registerService(String serviceName, Properties p) throws ServiceNotAccessibleException, ServiceNotSupportedException {
+    @Override
+    public boolean registerService(String serviceName, Properties p)
+            throws ServiceNotAccessibleException, ServiceNotSupportedException {
         return registerService(serviceName, serviceName, p);
     }
 
-    public boolean registerService(String interfaceName, String serviceName, Properties p) throws ServiceNotAccessibleException, ServiceNotSupportedException {
-        if(registeredServices.containsKey(interfaceName)) {
-            LOG.info("Service already registered, skipping: interface class is "+interfaceName+ " with service class: "+serviceName);
+    public boolean registerService(String interfaceName, String serviceName, Properties p)
+            throws ServiceNotAccessibleException, ServiceNotSupportedException {
+        if (registeredServices.containsKey(interfaceName)) {
+            LOG.info("Already registered, skipping: " + interfaceName);
             return true;
         }
-        LOG.info("Registering interface class: "+interfaceName+" with service class: "+serviceName);
-        if(p != null && p.size() > 0)
-            config.putAll(p);
+        LOG.info("Registering " + interfaceName + " -> " + serviceName);
+        if (p != null && !p.isEmpty()) config.putAll(p);
         try {
-            final BaseService service = (BaseService)Class.forName(serviceName).getConstructor().newInstance();
-            // Ensure dependent services are registered
-            if(service.getServicesDependentUpon()!=null && service.getServicesDependentUpon().size() > 0) {
-                for(String c : service.getServicesDependentUpon()) {
-                    registerService(c, config);
-                }
+            final BaseService service = (BaseService) Class.forName(serviceName).getConstructor().newInstance();
+            // register dependencies first
+            List<String> deps = service.getServicesDependentUpon();
+            if (deps != null) {
+                for (String c : deps) registerService(c, config);
             }
-            // Continue registering this service
             service.setProducer(this);
             service.setObserver(this);
             mBus.registerChannel(interfaceName);
             mBus.registerAsynchConsumer(interfaceName, service);
-            // register service
             registeredServices.put(interfaceName, service);
+            serviceStatuses.put(interfaceName, ServiceStatus.NOT_INITIALIZED);
             service.setRegistered(true);
-
-            LOG.info("Service registered successfully: "+serviceName);
+            LOG.info("Registered: " + serviceName);
+            return true;
         } catch (InstantiationException e) {
-            LOG.warning(e.getLocalizedMessage());
+            LOG.warning(e.toString());
             throw new ServiceNotSupportedException(e);
         } catch (IllegalAccessException e) {
-            LOG.warning(e.getLocalizedMessage());
+            LOG.warning(e.toString());
             throw new ServiceNotAccessibleException(e);
-        } catch (NoSuchMethodException e) {
-            LOG.warning(e.getLocalizedMessage());
-            return false;
-        } catch (InvocationTargetException e) {
-            LOG.warning(e.getLocalizedMessage());
-            return false;
-        } catch (ClassNotFoundException e) {
-            LOG.warning(e.getLocalizedMessage());
+        } catch (NoSuchMethodException | InvocationTargetException | ClassNotFoundException e) {
+            LOG.warning("Cannot register " + serviceName + ": " + e);
             return false;
         }
-        return true;
     }
 
+    @Override
     public boolean unregisterService(String serviceName) {
-        if(registeredServices.containsKey(serviceName)) {
-            final BaseService service = registeredServices.get(serviceName);
-            new AppThread(new Runnable() {
-                @Override
-                public void run() {
-                    if(service.shutdown()) {
-                        registeredServices.remove(serviceName);
-                        service.setRegistered(false);
-                        LOG.info("Service unregistered successfully: "+serviceName);
-                    }
-                }
-            }, serviceName+"-ShutdownThread").start();
-        }
+        final BaseService service = registeredServices.get(serviceName);
+        if (service == null) return true;
+        new AppThread(() -> {
+            if (service.shutdown()) {
+                registeredServices.remove(serviceName);
+                runningServices.remove(serviceName);
+                serviceStatuses.remove(serviceName);
+                service.setRegistered(false);
+                LOG.info("Unregistered: " + serviceName);
+            }
+        }, serviceName + "-ShutdownThread").start();
         return true;
     }
 
     public boolean startService(String serviceName) {
-        // init registered service
-        if(registeredServices.containsKey(serviceName)) {
-            final BaseService service = registeredServices.get(serviceName);
-            new AppThread(new Runnable() {
-                @Override
-                public void run() {
-                    if (service.start(config)) {
-                        runningServices.put(serviceName, service);
-                        LOG.info("Service registered successfully as running: " + serviceName);
-                    } else {
-                        LOG.warning("Registered service failed to start: " + serviceName);
-                    }
-                }
-            }, serviceName + "-StartupThread").start();
-        } else {
+        final BaseService service = registeredServices.get(serviceName);
+        if (service == null) {
+            LOG.warning("Not registered, cannot start: " + serviceName);
             return false;
         }
+        if (runningServices.containsKey(serviceName)) return true;
+        new AppThread(() -> {
+            if (service.start(config)) {
+                runningServices.put(serviceName, service);
+                LOG.info("Running: " + serviceName);
+            } else {
+                LOG.warning("Failed to start: " + serviceName);
+            }
+        }, serviceName + "-StartupThread").start();
         return true;
     }
 
     public boolean stopService(String serviceName, boolean gracefully) {
-        if(runningServices.containsKey(serviceName)) {
-            final BaseService service = runningServices.get(serviceName);
-            new AppThread(new Runnable() {
-                @Override
-                public void run() {
-                    if(gracefully && service.gracefulShutdown()) {
-                        runningServices.remove(serviceName);
-                        LOG.info("Service gracefully shutdown and unregistered successfully: "+serviceName);
-                    } else if(!gracefully && service.shutdown()) {
-                        runningServices.remove(serviceName);
-                        LOG.info("Service quick shutdown and unregistered successfully: "+serviceName);
-                    }
-                }
-            }, serviceName+"-ShutdownThread").start();
-        }
+        final BaseService service = runningServices.get(serviceName);
+        if (service == null) return true;
+        new AppThread(() -> {
+            boolean ok = gracefully ? service.gracefulShutdown() : service.shutdown();
+            if (ok) {
+                runningServices.remove(serviceName);
+                LOG.info((gracefully ? "Gracefully stopped: " : "Stopped: ") + serviceName);
+            }
+        }, serviceName + "-ShutdownThread").start();
         return true;
+    }
+
+    // ------------------------------------------------------------------
+    // Registration - Class-based (preferred)
+    // ------------------------------------------------------------------
+
+    /** Register a service class (interface == implementation). Catches and logs. */
+    public boolean registerService(Class<? extends Service> serviceClass) {
+        return registerService(serviceClass, serviceClass);
+    }
+
+    /** Register an implementation under an interface/type name. Catches and logs. */
+    public boolean registerService(Class<? extends Service> interfaceClass, Class<? extends Service> implClass) {
+        try {
+            return registerService(interfaceClass.getName(), implClass.getName(), config);
+        } catch (Exception e) {
+            LOG.warning("registerService(" + implClass.getName() + "): " + e.getMessage());
+            return false;
+        }
+    }
+
+    public boolean startService(Class<? extends Service> serviceClass) {
+        return startService(serviceClass.getName());
+    }
+
+    public boolean stopService(Class<? extends Service> serviceClass, boolean gracefully) {
+        return stopService(serviceClass.getName(), gracefully);
+    }
+
+    public boolean unregisterService(Class<? extends Service> serviceClass) {
+        return unregisterService(serviceClass.getName());
+    }
+
+    /** Register then start. Returns false if registration failed. */
+    public boolean registerAndStartService(Class<? extends Service> serviceClass) {
+        return registerService(serviceClass) && startService(serviceClass);
+    }
+
+    @SafeVarargs
+    public final void registerAndStartServices(Class<? extends Service>... serviceClasses) {
+        for (Class<? extends Service> c : serviceClasses) registerAndStartService(c);
+    }
+
+    /** Start every registered service that is not yet running. */
+    public void startAllRegistered() {
+        for (String name : registeredServices.keySet()) {
+            if (!runningServices.containsKey(name)) startService(name);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Discovery
+    // ------------------------------------------------------------------
+
+    public Set<String> getRegisteredServiceNames() {
+        return Collections.unmodifiableSet(registeredServices.keySet());
+    }
+
+    public Set<String> getRunningServiceNames() {
+        return Collections.unmodifiableSet(runningServices.keySet());
+    }
+
+    public Collection<BaseService> getRegisteredServices() {
+        return Collections.unmodifiableCollection(registeredServices.values());
+    }
+
+    public Collection<BaseService> getRunningServices() {
+        return Collections.unmodifiableCollection(runningServices.values());
+    }
+
+    /** The service registered under this exact class/name, running or not, or null. */
+    @SuppressWarnings("unchecked")
+    public <T extends Service> T getService(Class<T> serviceClass) {
+        BaseService s = registeredServices.get(serviceClass.getName());
+        return s != null && serviceClass.isInstance(s) ? (T) s : null;
+    }
+
+    /** All running services assignable to the given type (class or interface). */
+    public <T> List<T> findRunningServices(Class<T> type) {
+        List<T> out = new ArrayList<>();
+        for (BaseService s : runningServices.values()) {
+            if (type.isInstance(s)) out.add(type.cast(s));
+        }
+        return out;
+    }
+
+    public boolean isRegistered(Class<? extends Service> serviceClass) {
+        return registeredServices.containsKey(serviceClass.getName());
+    }
+
+    public boolean isRunning(Class<? extends Service> serviceClass) {
+        return runningServices.containsKey(serviceClass.getName());
+    }
+
+    public ServiceStatus getServiceStatus(Class<? extends Service> serviceClass) {
+        return serviceStatuses.get(serviceClass.getName());
+    }
+
+    public Map<String, ServiceStatus> getServiceStatuses() {
+        return Collections.unmodifiableMap(serviceStatuses);
+    }
+
+    /**
+     * Block until the given services are running (or all registered services, if
+     * none are named), or the timeout elapses.
+     *
+     * @return true if every target reached running before the timeout
+     */
+    public boolean awaitRunning(long timeoutMs, Class<?>... serviceClasses) {
+        Collection<String> targets;
+        if (serviceClasses.length == 0) {
+            targets = new ArrayList<>(registeredServices.keySet());
+        } else {
+            targets = new ArrayList<>();
+            for (Class<?> c : serviceClasses) targets.add(c.getName());
+        }
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (runningServices.keySet().containsAll(targets)) return true;
+            Wait.aMs(50);
+        }
+        return runningServices.keySet().containsAll(targets);
+    }
+
+    // ------------------------------------------------------------------
+    // Status observation
+    // ------------------------------------------------------------------
+
+    public void registerBusStatusListener(BusStatusListener l) { busStatusListeners.add(l); }
+    public void unregisterBusStatusListener(BusStatusListener l) { busStatusListeners.remove(l); }
+
+    public void registerServiceStatusListener(ServiceStatusListener l) { serviceStatusListeners.add(l); }
+    public void unregisterServiceStatusListener(ServiceStatusListener l) { serviceStatusListeners.remove(l); }
+
+    @Override
+    public void serviceStatusChanged(String serviceFullName, ServiceStatus serviceStatus) {
+        LOG.info("Service (" + serviceFullName + ") -> " + serviceStatus.name());
+        serviceStatuses.put(serviceFullName, serviceStatus);
+        for (ServiceStatusListener l : serviceStatusListeners) {
+            try {
+                l.serviceStatusChanged(serviceFullName, serviceStatus);
+            } catch (RuntimeException e) {
+                LOG.warning("ServiceStatusListener: " + e.getMessage());
+            }
+        }
+        if (serviceStatus == ServiceStatus.UNSTABLE) {
+            BaseService service = registeredServices.get(serviceFullName);
+            if (service != null) {
+                LOG.warning("Service (" + serviceFullName + ") UNSTABLE; restarting...");
+                new AppThread(service::restart, serviceFullName + "-RestartThread").start();
+            }
+        }
     }
 
     private void updateStatus(Status status) {
         this.status = status;
-        switch(status) {
-            case Starting: {
-                LOG.info("RA Service Bus is Starting");
-                break;
-            }
-            case Running: {
-                LOG.info("RA Service Bus is Running");
-                break;
-            }
-            case Stopping: {
-                LOG.info("RA Service Bus is Stopping");
-                break;
-            }
-            case Stopped: {
-                LOG.info("RA Service Bus has Stopped");
-                break;
-            }
-            case Errored: {
-                LOG.warning("RA Service Bus has errored.");
-                break;
-            }
-        }
-        LOG.info("Updating Bus Status Listeners; size="+busStatusListeners.size());
-        for(BusStatusListener l : busStatusListeners) {
-            l.busStatusChanged(status);
-        }
-    }
-
-    public void serviceStatusChanged(String serviceFullName, ServiceStatus serviceStatus) {
-        LOG.info("Service ("+serviceFullName+") reporting new status("+serviceStatus.name()+") to Bus.");
-        switch(serviceStatus) {
-            case UNSTABLE: {
-                // Service is Unstable - restart
-                BaseService service = registeredServices.get(serviceFullName);
-                if(service != null) {
-                    LOG.warning("Service ("+serviceFullName+") reporting UNSTABLE; restarting...");
-                    service.restart();
-                }
-                break;
-            }
-            case RUNNING: {
-                LOG.fine("Service ("+serviceFullName+") reporting Running.");
-                break;
-            }
-            case SHUTDOWN: {
-                LOG.fine("Service ("+serviceFullName+") reporting Shutdown.");
-                break;
-            }
-            case GRACEFULLY_SHUTDOWN: {
-                LOG.fine("Service ("+serviceFullName+") reporting Gracefully Shutdown.");
-                break;
+        LOG.info("RA Service Bus: " + status.name());
+        for (BusStatusListener l : busStatusListeners) {
+            try {
+                l.busStatusChanged(status);
+            } catch (RuntimeException e) {
+                LOG.warning("BusStatusListener: " + e.getMessage());
             }
         }
     }
 
-    /**
-     * Starts up Service Bus registering internal services, starting all services registered, and starting message channel
-     * and worker thread pool.
-     *
-     * @param properties
-     * @return
-     */
+    // ------------------------------------------------------------------
+    // LifeCycle
+    // ------------------------------------------------------------------
+
     @Override
     public boolean start(Properties properties) {
         updateStatus(Status.Starting);
         try {
             this.config = Config.loadAll(properties, "ra-servicebus.config");
         } catch (Exception e) {
-            LOG.warning(e.getLocalizedMessage());
-            this.config = properties;
+            LOG.warning("config: " + e.getMessage());
+            this.config = properties != null ? properties : new Properties();
         }
-        String baseLocation;
+
         File baseLocDir;
-        if(properties.contains("ra.sedabus.locationBase")) {
-            baseLocation = properties.getProperty("ra.sedabus.locationBase");
-            baseLocDir = new File(baseLocation);
+        if (this.config.containsKey("ra.sedabus.locationBase")) {
+            baseLocDir = new File(this.config.getProperty("ra.sedabus.locationBase"));
         } else {
             try {
-                baseLocDir = SystemSettings.getUserAppDataDir(".ra", this.getClass().getName(), true);
-                baseLocation = baseLocDir.getAbsolutePath();
+                baseLocDir = SystemSettings.getUserAppDataDir(".ra", getClass().getName(), true);
             } catch (IOException e) {
-                LOG.severe(e.getLocalizedMessage());
+                LOG.severe(e.getMessage());
+                updateStatus(Status.Errored);
                 return false;
             }
         }
-        if(!baseLocDir.exists() && !baseLocDir.mkdir()) {
-            LOG.severe("Unable to start Service Bus due to unable to create base directory: " + baseLocation);
+        if (!baseLocDir.exists() && !baseLocDir.mkdirs()) {
+            LOG.severe("cannot create " + baseLocDir);
+            updateStatus(Status.Errored);
             return false;
         }
         File deadLetterFile = new File(baseLocDir, "deadLetter.json");
         try {
-            if(!deadLetterFile.exists() && !deadLetterFile.createNewFile()) {
-                LOG.severe("Unable to start Service Bus due to unable to create dead letter file: " + baseLocDir.getAbsolutePath() + "/deadLetter.json");
+            if (!deadLetterFile.exists() && !deadLetterFile.createNewFile()) {
+                LOG.severe("cannot create " + deadLetterFile);
+                updateStatus(Status.Errored);
                 return false;
             }
         } catch (IOException e) {
-            LOG.severe(e.getLocalizedMessage());
+            LOG.severe(e.getMessage());
+            updateStatus(Status.Errored);
             return false;
         }
         deadLetterFilePath = deadLetterFile.getAbsolutePath();
 
-        String mBusType = properties.getProperty("ra.servicebus.mbus");
-        if(mBusType!=null) {
+        String mBusType = this.config.getProperty("ra.servicebus.mbus");
+        if (mBusType != null) {
             try {
                 mBus = (MessageBus) Class.forName(mBusType).getConstructor().newInstance();
             } catch (Exception e) {
-                LOG.severe(e.getLocalizedMessage());
+                LOG.severe("mbus " + mBusType + ": " + e.getMessage());
+                updateStatus(Status.Errored);
                 return false;
             }
         } else {
@@ -360,101 +461,75 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
         }
         mBus.start(this.config);
 
-        availableServices = new ArrayList<>();
-        registeredServices = new HashMap<>(15);
-        runningServices = new HashMap<>(15);
-        clients = new HashMap<>(10);
-
         updateStatus(Status.Running);
         return true;
     }
 
     @Override
     public boolean pause() {
-        return false;
+        if (status != Status.Running) return false;
+        for (BaseService s : runningServices.values()) s.pause();
+        mBus.pause();
+        updateStatus(Status.Paused);
+        return true;
     }
 
     @Override
     public boolean unpause() {
-        return false;
+        if (status != Status.Paused) return false;
+        mBus.unpause();
+        for (BaseService s : runningServices.values()) s.unpause();
+        updateStatus(Status.Running);
+        return true;
     }
 
     @Override
     public boolean restart() {
-        return false;
+        Properties saved = this.config;
+        return shutdown() && start(saved);
     }
 
-    /**
-     * Shutdown the Service Bus
-     *
-     * @return boolean was shutdown successful
-     */
     @Override
     public boolean shutdown() {
-        updateStatus(Status.Stopping);
-        for(final String serviceName : runningServices.keySet()) {
-            Thread t = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    BaseService service = runningServices.get(serviceName);
-                    if(service.shutdown()) {
-                        runningServices.remove(serviceName);
-                    }
-                }
-            }, serviceName+"-ShutdownThread");
-            t.setDaemon(true);
-            t.start();
-        }
-        if(mBus.shutdown()) {
-            updateStatus(Status.Stopped);
-        } else {
-            updateStatus(Status.Errored);
-            return false;
-        }
-        return true;
+        return doShutdown(false, 5_000L);
     }
 
-    /**
-     * Ensure teardown is graceful by waiting until all Services indicate graceful teardown complete or timeout
-     * @return boolean was graceful shutdown successful
-     */
     @Override
     public boolean gracefulShutdown() {
+        return doShutdown(true, 30_000L);
+    }
+
+    private boolean doShutdown(boolean graceful, long serviceTimeoutMs) {
         updateStatus(Status.Stopping);
-        List<String> keys = new ArrayList<>(runningServices.keySet());
-        for(final String serviceName : keys) {
-            AppThread t = new AppThread(new Runnable() {
-                @Override
-                public void run() {
-                    BaseService service = runningServices.get(serviceName);
-                    if(service.gracefulShutdown()) {
-                        runningServices.remove(serviceName);
-                    }
-                }
-            }, serviceName+"-GracefulShutdownThread");
+        List<String> names = new ArrayList<>(runningServices.keySet());
+        for (final String name : names) {
+            final BaseService service = runningServices.get(name);
+            if (service == null) continue;
+            AppThread t = new AppThread(() -> {
+                boolean ok = graceful ? service.gracefulShutdown() : service.shutdown();
+                if (ok) runningServices.remove(name);
+            }, name + (graceful ? "-GracefulShutdownThread" : "-ShutdownThread"));
             t.setDaemon(true);
             t.start();
         }
-        boolean allServicesShutdown = false;
-        while(!allServicesShutdown) {
-            Wait.aSec(1);
-            for(String key : keys) {
-                if(runningServices.get(key)!=null) {
-                    break; // break out of for
-                }
-            }
-            allServicesShutdown = true;
+        long deadline = System.currentTimeMillis() + serviceTimeoutMs;
+        while (!runningServices.isEmpty() && System.currentTimeMillis() < deadline) {
+            Wait.aMs(100);
         }
-        if(mBus.gracefulShutdown()) {
-            updateStatus(Status.Stopped);
-        } else {
-            updateStatus(Status.Errored);
-            return false;
+        if (!runningServices.isEmpty()) {
+            LOG.warning("services did not stop within " + serviceTimeoutMs + "ms: " + runningServices.keySet());
         }
-        return true;
+        boolean busOk = graceful ? mBus.gracefulShutdown() : mBus.shutdown();
+        updateStatus(busOk ? Status.Stopped : Status.Errored);
+        return busOk && runningServices.isEmpty();
     }
 
     public Status getStatus() {
         return status;
+    }
+
+    /** The underlying message bus. Rarely needed by callers. */
+    public MessageBus messageBus() {
+        return mBus;
     }
 }

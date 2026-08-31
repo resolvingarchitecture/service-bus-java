@@ -1,45 +1,72 @@
 package ra.servicebus;
 
-import org.junit.*;
-import ra.common.DLC;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 import ra.common.Envelope;
-import ra.common.service.ServiceNotAccessibleException;
-import ra.common.service.ServiceNotSupportedException;
-import ra.common.service.ServiceRegisteredException;
-import ra.common.Wait;
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
 public class ServiceBusTest {
 
     private static final Logger LOG = Logger.getLogger(ServiceBusTest.class.getName());
 
-    private static ServiceBus bus;
-    private static Properties props;
+    private ServiceBus bus;
+    private Properties props;
 
-    @BeforeClass
-    public static void init() {
-        LOG.info("Init...");
+    @Before
+    public void init() {
+        MockService.reset();
         props = new Properties();
         bus = new ServiceBus(props);
-        bus.start(props);
+        Assert.assertTrue(bus.start(props));
     }
 
-    @AfterClass
-    public static void tearDown() {
-        LOG.info("Teardown...");
+    @After
+    public void tearDown() {
         bus.gracefulShutdown();
     }
 
     @Test
-    public void verifyPointToPoint() throws ServiceNotAccessibleException, ServiceNotSupportedException, ServiceRegisteredException {
-        bus.registerService(MockService.class.getName(), props);
+    public void registerAndStart_thenDiscover() {
+        Assert.assertTrue(bus.registerAndStartService(MockService.class));
+        Assert.assertTrue("service should reach running",
+                bus.awaitRunning(5000, MockService.class));
 
-        Envelope env = Envelope.documentFactory(MockService.id);
-        DLC.addRoute(MockService.class.getName(),"Send", env);
-        bus.send(env);
-        Wait.aSec(2);
+        Assert.assertTrue(bus.isRegistered(MockService.class));
+        Assert.assertTrue(bus.isRunning(MockService.class));
+        Assert.assertNotNull(bus.getService(MockService.class));
+        Assert.assertEquals(1, bus.findRunningServices(MockService.class).size());
+        Assert.assertEquals(1, bus.findRunningServices(ra.common.service.Service.class).size());
+        Assert.assertTrue(MockService.STARTED);
     }
 
+    @Test
+    public void routesEnvelopeToServiceAndFiresCallback() throws Exception {
+        bus.registerAndStartService(MockService.class);
+        bus.awaitRunning(5000, MockService.class);
+
+        CountDownLatch replied = new CountDownLatch(1);
+        Envelope e = Envelope.documentFactory();
+        e.addRoute(MockService.class, "HANDLE");
+        e.ratchet();
+        bus.send(e, envelope -> replied.countDown());
+
+        Assert.assertTrue(replied.await(5, TimeUnit.SECONDS));
+        Assert.assertTrue(MockService.RECEIVED.contains(e.getId()));
+    }
+
+    @Test
+    public void pauseAndUnpause() {
+        bus.registerAndStartService(MockService.class);
+        bus.awaitRunning(5000, MockService.class);
+        Assert.assertTrue(bus.pause());
+        Assert.assertEquals(ra.common.Status.Paused, bus.getStatus());
+        Assert.assertTrue(bus.unpause());
+        Assert.assertEquals(ra.common.Status.Running, bus.getStatus());
+    }
 }
