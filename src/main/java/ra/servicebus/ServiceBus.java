@@ -31,6 +31,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -186,7 +187,13 @@ public final class ServiceBus implements MessageProducer, LifeCycle, ServiceRegi
             LOG.warning(e.toString());
             throw new ServiceNotAccessibleException(e);
         } catch (NoSuchMethodException | InvocationTargetException | ClassNotFoundException e) {
-            LOG.warning("Cannot register " + serviceName + ": " + e);
+            // e.toString() alone (the previous form of this log line) never shows an
+            // InvocationTargetException's real cause - Throwable.toString() only prints the
+            // exception's own class/message, and InvocationTargetException has neither; the
+            // actual constructor failure was silently invisible. LOG.log(..., Throwable) prints
+            // the full "Caused by:" chain instead - found while debugging exactly this (a
+            // service's own constructor threw and this line gave no way to tell why).
+            LOG.log(Level.WARNING, "Cannot register " + serviceName, e);
             return false;
         }
     }
